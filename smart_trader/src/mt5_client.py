@@ -52,6 +52,21 @@ def disconnect():
 
 # ── Market data ───────────────────────────────────────────────────────────────
 
+def is_market_open(symbol: str, max_tick_age_min: float = 5.0) -> bool:
+    """
+    Return True if market is open.
+    Checks last tick age — if older than max_tick_age_min, market is closed.
+    Spread alone is unreliable (IC Markets keeps spread non-zero on weekends).
+    """
+    from datetime import datetime, timezone
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        return False
+    tick_time = datetime.fromtimestamp(tick.time, tz=timezone.utc)
+    age_min = (datetime.now(timezone.utc) - tick_time).total_seconds() / 60
+    return age_min <= max_tick_age_min
+
+
 def get_price(symbol: str) -> dict:
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:

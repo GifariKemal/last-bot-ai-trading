@@ -81,6 +81,7 @@ def log_trade(event: str, data: dict) -> None:
 
 _attempted_zones: set[str] = set()  # zone_key → block re-entry same cycle
 _last_scan_report: Optional[datetime] = None  # last heartbeat Telegram report
+_last_market_closed_log: Optional[datetime] = None  # throttle market-closed log
 _session_trades: int = 0  # entries placed this session
 
 
@@ -106,6 +107,17 @@ def run_scan_cycle(cfg: dict) -> None:
 
     now_utc = datetime.now(timezone.utc)
     wib_str = now_utc.strftime("%H:%M") + " UTC"
+
+    # ── Market closed guard ───────────────────────────────────────────────────
+    global _last_market_closed_log
+    if not mt5c.is_market_open(symbol):
+        if _last_market_closed_log is None or \
+                (now_utc - _last_market_closed_log).total_seconds() >= 3600:
+            logger.info(f"[{wib_str}] Market closed - bot standing by")
+            _last_market_closed_log = now_utc
+        return
+
+    _last_market_closed_log = None  # reset when market reopens
 
     # ── Spike window guard ────────────────────────────────────────────────────
     if scan.is_spike_window(now_utc):
@@ -439,6 +451,11 @@ def _send_heartbeat_report(cfg: dict) -> None:
         db_path   = cfg["paths"]["zone_cache_db"]
         proximity = cfg["trading"]["zone_proximity_pts"]
         magic     = cfg.get("mt5", {}).get("magic", 202602)
+
+        # Market closed — send simple status instead of full scan report
+        if not mt5c.is_market_open(symbol):
+            _tg.send_error("Market Closed", "Bot standing by — akan aktif kembali saat market buka")
+            return
 
         price_info = mt5c.get_price(symbol)
         if not price_info:
