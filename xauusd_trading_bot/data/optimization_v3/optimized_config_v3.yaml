@@ -1,0 +1,424 @@
+account_protection:
+  daily_profit_target: 3.0
+  max_consecutive_losses: 3
+  max_daily_loss_percent: 5.0
+  max_drawdown_percent: 15.0
+  max_monthly_loss_percent: 20.0
+  max_weekly_loss_percent: 10.0
+  pause_duration_minutes: 60
+bot:
+  environment: demo
+  loop_interval: 1.0
+  name: XAUUSD SMC Trading Bot
+  version: 1.0.0
+confluence_weights:
+  bollinger_confirmation: 0.05
+  ema_alignment: 0.1
+  fvg: 0.2
+  liquidity_sweep: 0.2
+  ltf_confirmation_bonus: 0.1
+  macd_confirmation: 0.07
+  market_condition: 0.25
+  mtf_alignment: 0.1
+  mtf_alignment_bonus: 0.15
+  order_block: 0.25
+  pd_zone_bonus: 0.0
+  pd_zone_penalty: 0.0
+  rsi_confirmation: 0.08
+  session_bonus: 0.1
+  smc: 0.4
+  structure_break: 0.3
+  technical: 0.25
+connection:
+  login: 52725397
+  password: WlNE&S3ck65acj
+  server: ICMarketsSC-Demo
+  terminal_path: C:\Program Files\MetaTrader 5 IC Markets Global\terminal64.exe
+  timeout: 60000
+connection_monitoring:
+  check_interval: 60
+  max_reconnect_attempts: 3
+  reconnect_on_failure: true
+correlation:
+  correlation_check_enabled: true
+  max_correlated_positions: 2
+data:
+  market_history_path: data/market_history
+  retention_days: 365
+  save_market_history: true
+  save_trade_history: true
+  trade_history_path: data/trade_history
+data_fetch:
+  default_bars: 1000
+  max_bars: 10000
+  retry_on_failure: true
+emergency:
+  enabled: true
+  max_consecutive_losses: 5
+  max_drawdown_percent: 15.0
+  stop_file: EMERGENCY_STOP.txt
+exit_stages:
+  be_trigger_rr: 1.0
+  partial_close_rr: 1.5
+  trail_activation_rr: 2.0
+logging:
+  console_output: true
+  file_output: true
+  level: INFO
+  log_market_data: true
+  log_trades: true
+  retention: 30 days
+  rotation: 100 MB
+market_conditions:
+  market_state:
+    ranging:
+      confluence_adjustment: 0.05
+      position_size_multiplier: 0.8
+    trending:
+      confluence_adjustment: 0.0
+      position_size_multiplier: 1.0
+    volatile:
+      confluence_adjustment: 0.05
+      position_size_multiplier: 0.6
+  trend_detection:
+    method: ema_slope
+    strong_trend_threshold: 0.7
+    weak_trend_threshold: 0.3
+  volatility_classification:
+    high_threshold: 70
+    lookback_bars: 100
+    low_threshold: 30
+    method: atr_percentile
+market_hours:
+  check_enabled: true
+  holiday_trading: false
+  weekend_trading: false
+micro_account:
+  enabled: true
+  fixed_lot: 0.01
+  loss_protection:
+    pause_after_losses: 3
+    reduce_after_losses: 2
+    risk_reduction_percent: 25.0
+  max_balance_threshold: 500.0
+  max_positions: 2
+  max_risk_dollars: 2.0
+  max_risk_percent: 2.0
+  max_spread_pct_of_sl: 10.0
+monitoring:
+  health_check_interval: 300
+  performance_log_interval: 3600
+  send_alerts: true
+mtf_analysis:
+  alignment:
+    require_all_aligned: false
+    require_majority_aligned: true
+    weight_higher_timeframes: true
+  confirmation_timeframes:
+  - M5
+  - M1
+  entry_timeframe: M15
+  ltf_confirmation:
+    enabled: true
+    lookback_bars: 6
+    momentum_weight: 0.4
+    rejection_weight: 0.3
+    structure_weight: 0.3
+  trend_timeframe: H1
+news_trading:
+  avoid_events:
+  - NFP
+  - FOMC
+  - CPI
+  - Unemployment Rate
+  - Interest Rate Decision
+  buffer_after_minutes: 30
+  buffer_before_minutes: 30
+  enabled: false
+  news_trading_requirements:
+    min_confluence_score: 0.8
+    reduce_position_size: true
+    size_multiplier: 0.5
+ny_close_exit:
+  buffer_minutes: 30
+  enabled: true
+  min_hold_hours_for_profit_take: 2
+  min_profit_for_early_exit: 0.3
+  near_breakeven_loss: 1.0
+  ny_close_utc: '22:00'
+  profit_decay_hours: 4
+  profit_decay_threshold: 0.3
+partial_close:
+  close_percent: 50
+  enabled: true
+  move_sl_to_be: true
+position_limits:
+  max_open_positions: 3
+  max_positions_per_direction: 2
+  max_total_lots: 0.2
+position_sizing:
+  fixed_lot: 0.01
+  max_lot: 0.1
+  method: fixed
+  min_lot: 0.01
+  percent_per_trade: 1.0
+preferences:
+  avoid_sessions: []
+  preferred_sessions:
+  - overlap
+  - london
+  - new_york
+  session_adjustments:
+    asian:
+      avoid_aggressive_entries: true
+      reduce_position_size: true
+      size_multiplier: 0.7
+    overlap:
+      aggressive_entries_allowed: true
+      allow_more_trades: true
+      increase_position_size: false
+regime_detection:
+  breakout_atr_pct: 80
+  breakout_bb_pct: 75
+  lookback_bars: 100
+  range_trend_score: 0.2
+  strong_trend_atr_pct: 50
+  strong_trend_ema_spread: 0.15
+  strong_trend_score: 0.5
+regime_weights:
+  breakout:
+    atr_sl_mult: 4.264723057103962
+    market_weight: 0.26753209491639507
+    min_confluence: 0.6141709623799597
+    min_smc_signals: 3
+    mtf_weight: 0.1
+    smc_weight: 0.49548754925025995
+    tech_weight: 0.13698035583334497
+  ranging:
+    atr_sl_mult: 4.6637910261532225
+    market_weight: 0.30013928960317104
+    min_confluence: 0.5497757343763001
+    min_smc_signals: 3
+    mtf_weight: 0.1
+    smc_weight: 0.3738825614602458
+    tech_weight: 0.2259781489365832
+  reversal:
+    atr_sl_mult: 4.38730522376769
+    market_weight: 0.05
+    min_confluence: 0.589018731169874
+    min_smc_signals: 2
+    mtf_weight: 0.1
+    smc_weight: 0.511814466155847
+    tech_weight: 0.39837514573243304
+  trending:
+    atr_sl_mult: 2.604144569739841
+    market_weight: 0.05
+    min_confluence: 0.43697620650667773
+    min_smc_signals: 1
+    mtf_weight: 0.1
+    smc_weight: 0.5830247743173665
+    tech_weight: 0.3942026482922251
+  volatile:
+    atr_sl_mult: 4.5692250058234585
+    market_weight: 0.34953179801504475
+    min_confluence: 0.7043510928641762
+    min_smc_signals: 3
+    mtf_weight: 0.1
+    smc_weight: 0.31920548165967194
+    tech_weight: 0.2312627203252834
+restrictions:
+  avoid_weekends: true
+  blackout_hours: []
+  friday_close_early: true
+  friday_close_time_utc: '20:00'
+  trading_days:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+retry:
+  exponential_base: 2.0
+  initial_delay: 1.0
+  max_attempts: 5
+  max_delay: 60.0
+risk:
+  exit_stages:
+    be_trigger_rr: 0.7662560408683182
+    partial_close_rr: 2.732449347133821
+    trail_activation_rr: 2.7226651795264383
+  stop_loss:
+    atr_multiplier: 2.604144569739841
+  take_profit:
+    atr_multiplier: 6.020886585569691
+session:
+  asian_weight: 0.7487856625148068
+  london_ny_weight: 1.157011175966824
+  overlap_weight: 1.176600300773265
+sessions:
+  asian:
+    description: Tokyo session - Lower volatility, still tradeable
+    end_utc: 08:00
+    min_confluence_adjustment: 0.05
+    name: Asian Session
+    start_utc: 00:00
+    weight: 0.7
+  london:
+    description: London session - Good volatility and liquidity
+    end_utc: '16:00'
+    min_confluence_adjustment: 0.0
+    name: London Session
+    start_utc: 08:00
+    weight: 1.1
+  new_york:
+    description: New York session - High volatility and liquidity
+    end_utc: '22:00'
+    min_confluence_adjustment: 0.0
+    name: New York Session
+    start_utc: '13:00'
+    weight: 1.1
+  overlap:
+    description: Overlap session - Best liquidity and movement for XAUUSD
+    end_utc: '16:00'
+    min_confluence_adjustment: -0.05
+    name: London-NY Overlap
+    start_utc: '13:00'
+    weight: 1.25
+signal_validation:
+  check_recent_false_signals: true
+  false_signal_lookback_bars: 50
+  min_bars_since_last_signal: 5
+  min_price_change_pips: 10
+  reduce_score_for_false_signals: 0.1
+smc_indicators:
+  fair_value_gaps:
+    enabled: true
+    max_age_bars: 100
+    min_gap_pips: 5
+    weight: 0.2
+  liquidity:
+    enabled: true
+    equal_level_tolerance_pips: 3
+    lookback_bars: 30
+    min_touches: 2
+    sweep_confirmation_bars: 20
+    weight: 0.2
+  order_blocks:
+    enabled: true
+    lookback_bars: 50
+    min_body_percent: 60
+    require_strong_move: true
+    strong_move_bars: 5
+    strong_move_percent: 0.45496679510376603
+    weight: 0.25
+  structure:
+    bos_confirmation_bars: 2
+    bos_weight: 0.15
+    choch_weight: 0.3
+    enabled: true
+    swing_lookback: 10
+spread_filter:
+  enabled: true
+  max_spread_multiplier: 3.0
+  max_spread_pips: 5.0
+stop_loss:
+  atr_multiplier: 3.0
+  max_pips: 200
+  method: atr_based
+  min_pips: 10
+  volatility_adjustment:
+    enabled: true
+    high_volatility_multiplier: 1.5
+    low_volatility_multiplier: 0.8
+    medium_volatility_multiplier: 1.0
+strategy:
+  entry:
+    avoid_news_events: true
+    min_confluence_score: 0.6
+    news_buffer_minutes: 30
+    prefer_overlap_session: true
+    require_fvg_or_ob: false
+    require_mtf_alignment: false
+    require_structure_support: true
+  exit:
+    recovery_zone:
+      deep_loss_threshold: 0.6
+      enabled: true
+      min_hold_minutes: 30
+      recovery_threshold: 0.1
+    time_exit_hours: 24
+    use_opposite_signal: true
+    use_recovery_zone_exit: true
+    use_session_close_exit: true
+    use_structure_exit: true
+    use_time_exit: true
+  name: Smart Money Concepts (SMC)
+  type: multi_timeframe
+structure_sl_tp:
+  enabled: true
+  prefer_wider_sl: true
+  sl_buffer_atr_fraction: 0.2
+symbol:
+  digits: 2
+  name: XAUUSD
+  point: 0.01
+take_profit:
+  atr_multiplier: 5.0
+  max_pips: 500
+  method: atr_based
+  min_pips: 20
+  min_rr_ratio: 2.0
+technical_indicators:
+  atr:
+    period: 14
+    smoothing: ema
+  bollinger_bands:
+    enabled: true
+    period: 20
+    std_dev: 2.0
+    weight: 0.05
+  ema:
+    enabled: true
+    periods:
+    - 20
+    - 50
+    - 100
+    - 200
+    use_for_trend: true
+    weight: 0.1
+  macd:
+    enabled: true
+    fast_period: 12
+    signal_period: 9
+    slow_period: 26
+    weight: 0.07
+  rsi:
+    enabled: true
+    overbought: 70
+    oversold: 30
+    period: 14
+    weight: 0.08
+telegram:
+  chat_id: '-1003549733840'
+  enabled: true
+  token: 8215295219:AAGwcevN5QKqYIgVnOogB9P1Lo-x6HCoatM
+trading:
+  allow_24_7: false
+  analysis_timeframes:
+  - M1
+  - M5
+  - M15
+  - H1
+  max_daily_trades: 10
+  max_open_positions: 3
+  primary_timeframe: M15
+  require_all_positions_profitable: false
+  symbol: XAUUSD
+  trading_enabled: true
+trailing_stop:
+  activation_percent: 5.0
+  breakeven_trigger_percent: 5.0
+  enabled: true
+  move_to_breakeven: true
+  trail_distance_percent: 8.0
+use_adaptive_scorer: true

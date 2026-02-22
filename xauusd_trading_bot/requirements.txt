@@ -1,0 +1,44 @@
+# Core Trading
+MetaTrader5>=5.0.45
+
+# Data Processing
+polars>=0.20.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Logging
+loguru>=0.7.0
+
+# Configuration
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Date/Time
+python-dateutil>=2.8.2
+pytz>=2023.3
+
+# Technical Indicators
+ta>=0.11.0
+pandas-ta>=0.3.14b
+
+# HTTP / Notifications
+requests>=2.31.0
+
+# Utilities
+tqdm>=4.65.0
+colorama>=0.4.6
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Optimization
+optuna>=3.5.0
+joblib>=1.3.0
+scikit-learn>=1.3.0
+
+# Type Checking
+mypy>=1.5.0
+
+# V4: Library-based SMC detection
+smartmoneyconcepts>=0.0.26

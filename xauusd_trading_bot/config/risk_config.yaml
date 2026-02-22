@@ -1,0 +1,93 @@
+# Risk Management Configuration
+
+position_sizing:
+  method: "fixed"            # Fixed 0.01 lot (suitable for $50-$100 account)
+  fixed_lot: 0.01
+  min_lot: 0.01
+  max_lot: 0.10
+  percent_per_trade: 1.0     # Used when method: "percent_balance" (future use)
+  # kelly_fraction: 0.25  # For future use
+
+position_limits:
+  max_open_positions: 1       # Exness $100 balance: margin ~$51/trade at 1:100 leverage
+  max_positions_per_direction: 1
+  min_position_distance: 20.0  # Min pips between same-direction entries (prevents same-level stacking)
+  max_total_lots: 0.01        # Max total exposure (single 0.01 lot)
+
+stop_loss:
+  method: "atr_based"  # atr_based, fixed_pips, percent
+  atr_multiplier: 3.0  # Optimized: wider SL for XAUUSD volatility
+  min_pips: 10  # Minimum SL in pips
+  max_pips: 200  # Maximum SL in pips
+
+  # Volatility adjustments
+  volatility_adjustment:
+    enabled: true
+    low_volatility_multiplier: 0.8   # Tighter SL in low volatility
+    medium_volatility_multiplier: 1.0
+    high_volatility_multiplier: 1.5  # Wider SL in high volatility
+
+take_profit:
+  method: "atr_based"  # atr_based, fixed_pips, rr_ratio
+  atr_multiplier: 6.02  # V3 Optuna-optimized (was 5.0)
+  min_rr_ratio: 2.0  # Minimum Risk:Reward ratio
+  min_pips: 20
+  max_pips: 500
+
+trailing_stop:
+  enabled: true
+  activation_percent: 5.0  # Optimized: activate trailing at 5% profit
+  trail_distance_percent: 8.0  # Optimized: trail 8% from peak
+  move_to_breakeven: true
+  breakeven_trigger_percent: 5.0  # Move to BE at 5% profit
+
+partial_close:
+  enabled: true  # Multi-stage exit enabled
+  close_percent: 50  # Close 50% at 1.5:1 RR
+  move_sl_to_be: true  # Move SL to breakeven at 1:1 RR
+
+account_protection:
+  max_daily_loss_percent: 5.0  # Stop trading if daily loss exceeds this
+  max_weekly_loss_percent: 10.0
+  max_monthly_loss_percent: 20.0
+  max_consecutive_losses: 3  # Pause after this many consecutive losses
+  pause_duration_minutes: 60  # Pause duration after max consecutive losses
+
+  max_drawdown_percent: 15.0  # Emergency stop if drawdown exceeds this
+  daily_profit_target: 3.0  # Optional: Stop after reaching daily profit (%)
+
+correlation:
+  max_correlated_positions: 2  # Max positions in same direction
+  correlation_check_enabled: true
+
+spread_filter:
+  enabled: true
+  max_spread_pips: 5.0  # Don't trade if spread exceeds this
+  max_spread_multiplier: 3.0  # Max spread as multiple of average spread
+
+# Structure-Based SL/TP (V3)
+structure_sl_tp:
+  enabled: true
+  sl_buffer_atr_fraction: 0.2  # Buffer beyond swing point = 0.2 * ATR
+  prefer_wider_sl: true         # Take wider of ATR vs structure SL (safety)
+
+# Configurable exit stage thresholds (V3 Optuna-optimized)
+exit_stages:
+  be_trigger_rr: 0.77        # Move SL to breakeven at this RR (V3: earlier BE)
+  partial_close_rr: 2.73     # Partial close at this RR (V3: later partial)
+  trail_activation_rr: 2.72  # Start trailing at this RR
+
+# Micro Account Safety (V3)
+micro_account:
+  enabled: true
+  max_balance_threshold: 500.0  # Accounts below this are "micro"
+  max_risk_dollars: 2.0         # Max risk per trade in dollars
+  max_risk_percent: 2.0         # Max risk as % of balance
+  max_positions: 1              # Max simultaneous positions (margin limit)
+  max_spread_pct_of_sl: 10.0   # Reject if spread > 10% of SL
+  fixed_lot: 0.01
+
+  loss_protection:
+    reduce_after_losses: 2      # Reduce risk after N consecutive losses
+    risk_reduction_percent: 25.0
+    pause_after_losses: 3       # Pause trading after N consecutive losses

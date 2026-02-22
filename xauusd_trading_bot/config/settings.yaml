@@ -1,0 +1,116 @@
+# Main Bot Settings
+
+bot:
+  name: "XAUUSD SMC Trading Bot"
+  version: "1.0.0"
+  environment: "demo"  # demo or live
+  loop_interval: 1.0  # seconds between main loop iterations
+
+trading:
+  symbol: "XAUUSDm"
+  primary_timeframe: "M15"  # Primary timeframe for trading
+  analysis_timeframes:
+    - "M1"   # For precise entry timing
+    - "M5"   # For confirmation
+    - "M15"  # Primary trading timeframe
+    - "H1"   # For trend context
+
+  max_open_positions: 1  # Exness $100 balance: margin ~$51/trade at 1:100 leverage
+  max_daily_trades: 10
+  require_all_positions_profitable: false  # Disabled: SMC signals fire regardless of existing P/L (opposite-direction entries allowed)
+
+  # Trading hours (UTC)
+  trading_enabled: true
+  allow_24_7: false  # If false, respect trading sessions
+
+data:
+  save_market_history: true
+  save_trade_history: true
+  market_history_path: "data/market_history"
+  trade_history_path: "data/trade_history"
+  retention_days: 365  # How long to keep historical data
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  console_output: true
+  file_output: true
+  log_trades: true
+  log_market_data: true
+  rotation: "100 MB"  # Log file rotation size
+  retention: "30 days"  # Log file retention period
+
+telegram:
+  enabled: true
+  token: "8215295219:AAGwcevN5QKqYIgVnOogB9P1Lo-x6HCoatM"
+  chat_id: "-1003549733840"
+
+monitoring:
+  health_check_interval: 300  # seconds (5 minutes)
+  performance_log_interval: 3600  # seconds (1 hour)
+  send_alerts: true  # Telegram alerts enabled
+
+# V3: Regime-adaptive scoring (set to false to use V2 fixed weights)
+use_adaptive_scorer: true
+
+# V4: Library-based SMC detection via smartmoneyconcepts (set true to enable V4)
+# Run: pip install smartmoneyconcepts>=0.0.26
+use_smc_v4: true
+
+# Regime detection parameters
+regime_detection:
+  lookback_bars: 100
+  strong_trend_score: 0.5
+  strong_trend_ema_spread: 0.15
+  strong_trend_atr_pct: 50
+  range_trend_score: 0.2
+  breakout_atr_pct: 80
+  breakout_bb_pct: 75
+
+# Per-regime weight profiles (V3 Optuna-optimized)
+regime_weights:
+  trending:
+    smc_weight: 0.583
+    tech_weight: 0.394
+    market_weight: 0.05
+    mtf_weight: 0.10
+    min_confluence: 0.437
+    min_smc_signals: 1
+    atr_sl_mult: 2.60
+  ranging:
+    smc_weight: 0.374
+    tech_weight: 0.226
+    market_weight: 0.300
+    mtf_weight: 0.10
+    min_confluence: 0.550
+    min_smc_signals: 3
+    atr_sl_mult: 4.66
+  breakout:
+    smc_weight: 0.495
+    tech_weight: 0.137
+    market_weight: 0.268
+    mtf_weight: 0.10
+    min_confluence: 0.614
+    min_smc_signals: 3
+    atr_sl_mult: 4.26
+  reversal:
+    smc_weight: 0.512
+    tech_weight: 0.398
+    market_weight: 0.05
+    mtf_weight: 0.10
+    min_confluence: 0.589
+    min_smc_signals: 2
+    atr_sl_mult: 4.39
+  volatile:
+    smc_weight: 0.319
+    tech_weight: 0.231
+    market_weight: 0.350
+    mtf_weight: 0.10
+    min_confluence: 0.704
+    min_smc_signals: 3
+    atr_sl_mult: 4.57
+
+emergency:
+  enabled: true
+  stop_file: "EMERGENCY_STOP.txt"  # Create this file to stop bot
+  max_drawdown_percent: 15.0  # Stop if drawdown exceeds this
+  max_consecutive_losses: 5  # Stop if consecutive losses exceed this

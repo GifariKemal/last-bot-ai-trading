@@ -1,0 +1,473 @@
+//@version=5
+// NOTE: Set chart to XAUUSDm, M15 timeframe.
+// Parameters synchronized with Python live bot (V3 Optuna-optimized + V4 SMC library).
+// Account: Exness Demo, XAUUSDm, $100 balance, leverage 1:100, Magic=202602
+// Last sync: 2026-02-22 — matched to V3 regime-adaptive config + bug fixes
+strategy("XAUUSD SMC Bot [M15]", shorttitle="SMC Bot", overlay=true, default_qty_type=strategy.fixed, default_qty_value=1, initial_capital=10000, currency=currency.USD, max_bars_back=500, calc_on_every_tick=false, process_orders_on_close=true)
+
+// ══════════════════════════════════════════════════════════════
+//  INPUTS
+// ══════════════════════════════════════════════════════════════
+// SL: regime-adaptive in live bot (trending=2.60, ranging=4.66, breakout=4.26, volatile=4.57)
+// TP: V3 Optuna-optimized = 6.02 (rounded to 6.0)
+sl_atr_mult  = input.float(3.0,  "SL ATR Multiplier",        minval=0.5, maxval=10.0, step=0.5,  group="Risk Management")
+tp_atr_mult  = input.float(6.0,  "TP ATR Multiplier",        minval=0.5, maxval=20.0, step=0.5,  group="Risk Management")
+
+// min_conf: single threshold (live bot is regime-adaptive: trending=0.44, ranging=0.55, breakout=0.61, volatile=0.70)
+min_conf     = input.float(0.55, "Min Confluence Score",     minval=0.10, maxval=1.00, step=0.05, group="Entry Filters")
+req_struct   = input.bool(true,  "Require BOS or CHoCH",     group="Entry Filters")
+// min_smc_sigs: regime-adaptive in live bot (trending=1, ranging/breakout/volatile=3, reversal=2)
+min_smc_sigs = input.int(2,      "Min SMC Signals (1-4)",    minval=1, maxval=4,                  group="Entry Filters")
+rsi_protect  = input.bool(true,  "RSI Bounce Protection (>75/<25)", group="Entry Filters")
+rsi_hard_blk = input.bool(true,  "RSI Hard Block (>85 / <15)",      group="Entry Filters")
+
+// Bug fix 2026-02-22: struct_lb 50→20 (was causing BOS gate to fire trivially on all bars)
+// Bug fix 2026-02-22: ob_lb 50→20 (align with live bot SWEEP_LOOKBACK_BARS=20)
+swing_lb     = input.int(10,     "Swing Lookback (each side)",minval=3, maxval=20,                group="SMC Parameters")
+struct_lb    = input.int(20,     "BOS/CHoCH Lookback (bars)", minval=5, maxval=200,               group="SMC Parameters")
+fvg_pips     = input.float(5.0,  "FVG Min Size (pips)",      minval=1.0,                         group="SMC Parameters")
+ob_lb        = input.int(20,     "OB Lookback (bars)",       minval=5, maxval=200,                group="SMC Parameters")
+sweep_bars   = input.int(20,     "Liquidity Sweep Window",   minval=1, maxval=100,                group="SMC Parameters")
+
+// V3 Optuna-optimized weights (regime-adaptive in live bot via smc/tech/market/mtf component weights)
+w_fvg        = input.float(0.20, "FVG Weight",               minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+w_ob         = input.float(0.25, "Order Block Weight",       minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+w_liq        = input.float(0.20, "Liquidity Sweep Weight",   minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+w_choch      = input.float(0.30, "CHoCH Weight",             minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+w_bos        = input.float(0.21, "BOS Weight (=0.30×0.70)",  minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+w_ema        = input.float(0.10, "EMA Alignment Weight",     minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+w_rsi        = input.float(0.08, "RSI Confirmation Weight",  minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+w_macd       = input.float(0.07, "MACD Confirmation Weight", minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+// w_mtf 0.15→0.10: live bot mtf_weight=0.10 (V3 Optuna-optimized, was 0.15)
+w_mtf        = input.float(0.10, "H1 MTF Alignment Bonus",  minval=0.0, maxval=1.0, step=0.05,  group="Confluence Weights")
+
+show_sess    = input.bool(true,  "Show Session Backgrounds", group="Visuals")
+show_fvg_b   = input.bool(true,  "Show FVG Boxes",           group="Visuals")
+show_ob_b    = input.bool(true,  "Show OB Boxes",            group="Visuals")
+show_sig     = input.bool(true,  "Show Entry Signals",       group="Visuals")
+show_swings  = input.bool(true,  "Show Swing Points",        group="Visuals")
+show_partial = input.bool(true,  "Show Partial Close Level", group="Visuals")
+
+// ══════════════════════════════════════════════════════════════
+//  TECHNICAL INDICATORS
+// ══════════════════════════════════════════════════════════════
+atr_val          = ta.atr(14)
+ema_20           = ta.ema(close, 20)
+ema_50           = ta.ema(close, 50)
+ema_100          = ta.ema(close, 100)
+ema_200          = ta.ema(close, 200)
+rsi_val          = ta.rsi(close, 14)
+[_, _, macd_hist] = ta.macd(close, 12, 26, 9)
+h1_ema20         = request.security(syminfo.tickerid, "60", ta.ema(close, 20))
+h1_ema50         = request.security(syminfo.tickerid, "60", ta.ema(close, 50))
+float pip        = syminfo.mintick * 10.0
+
+// ══════════════════════════════════════════════════════════════
+//  SWING POINTS & MARKET STRUCTURE
+// ══════════════════════════════════════════════════════════════
+float ph = ta.pivothigh(high, swing_lb, swing_lb)
+float pl = ta.pivotlow(low,   swing_lb, swing_lb)
+
+var float sh1 = na
+var float sh2 = na
+var float sl1 = na
+var float sl2 = na
+
+if not na(ph)
+    sh2 := sh1
+    sh1 := ph
+if not na(pl)
+    sl2 := sl1
+    sl1 := pl
+
+// Trend: OR logic (HH or HL = Bull, LL or LH = Bear) — matches Python bot
+bool hh = not na(sh1) and not na(sh2) and sh1 > sh2
+bool hl = not na(sl1) and not na(sl2) and sl1 > sl2
+bool ll = not na(sl1) and not na(sl2) and sl1 < sl2
+bool lh = not na(sh1) and not na(sh2) and sh1 < sh2
+int trend_now = (hh or hl) ? 1 : (ll or lh) ? -1 : 0
+
+// ── BOS / CHoCH ───────────────────────────────────────────────
+var int bar_bull_choch = -9999
+var int bar_bear_choch = -9999
+var int bar_bull_bos   = -9999
+var int bar_bear_bos   = -9999
+
+// Cross detection: if trend == 0 (neutral, not enough swing data yet), treat as BOS
+if not na(sh1)
+    bool cross_up = close > sh1 and close[1] <= sh1
+    if cross_up
+        if trend_now == -1
+            bar_bull_choch := bar_index  // reversal = CHoCH
+        else
+            bar_bull_bos := bar_index    // continuation or neutral = BOS
+
+if not na(sl1)
+    bool cross_dn = close < sl1 and close[1] >= sl1
+    if cross_dn
+        if trend_now == 1
+            bar_bear_choch := bar_index  // reversal = CHoCH
+        else
+            bar_bear_bos := bar_index    // continuation or neutral = BOS
+
+// struct_lb=20 (live bot BOS_LOOKBACK_BARS=20, bug fix: was 50 → trivially satisfied)
+bool bull_choch = (bar_index - bar_bull_choch) <= struct_lb
+bool bear_choch = (bar_index - bar_bear_choch) <= struct_lb
+bool bull_bos   = (bar_index - bar_bull_bos)   <= struct_lb
+bool bear_bos   = (bar_index - bar_bear_bos)   <= struct_lb
+
+// ══════════════════════════════════════════════════════════════
+//  FVG DETECTION
+// ══════════════════════════════════════════════════════════════
+float fvg_min    = fvg_pips * pip
+bool bull_fvg_now = low > high[2] and (low - high[2]) >= fvg_min
+bool bear_fvg_now = high < low[2] and (low[2] - high) >= fvg_min
+
+var float bfvg_hi  = na
+var float bfvg_lo  = na
+var int   bfvg_bar = -9999
+var float sfvg_hi  = na
+var float sfvg_lo  = na
+var int   sfvg_bar = -9999
+
+if bull_fvg_now
+    bfvg_hi := low
+    bfvg_lo := high[2]
+    bfvg_bar := bar_index
+if bear_fvg_now
+    sfvg_hi := low[2]
+    sfvg_lo := high
+    sfvg_bar := bar_index
+
+bool bfvg_active = not na(bfvg_hi) and (bar_index - bfvg_bar) <= 100
+bool sfvg_active = not na(sfvg_hi) and (bar_index - sfvg_bar) <= 100
+// in_fvg: price returning INTO the FVG zone (retest) — most accurate SMC signal
+// also count if FVG just formed this bar (price AT the upper/lower edge)
+bool in_bull_fvg = bfvg_active and (close >= bfvg_lo and close <= bfvg_hi or bull_fvg_now)
+bool in_bear_fvg = sfvg_active and (close >= sfvg_lo and close <= sfvg_hi or bear_fvg_now)
+
+// FVG boxes (single-line to avoid Pine v5 multi-line-in-if-block issue)
+if show_fvg_b and bull_fvg_now
+    box.new(bar_index - 2, bfvg_hi, bar_index + 30, bfvg_lo, bgcolor=color.new(color.green, 82), border_color=color.new(color.green, 55), border_width=1)
+if show_fvg_b and bear_fvg_now
+    box.new(bar_index - 2, sfvg_hi, bar_index + 30, sfvg_lo, bgcolor=color.new(color.red, 82), border_color=color.new(color.red, 55), border_width=1)
+
+// ══════════════════════════════════════════════════════════════
+//  ORDER BLOCK DETECTION
+// ══════════════════════════════════════════════════════════════
+float rng1     = high[1] - low[1]
+bool  body_ok1 = rng1 > 0.0 and (math.abs(close[1] - open[1]) / rng1) >= 0.60
+bool new_bull_ob = close[1] < open[1] and body_ok1 and close > open[1] + atr_val * 0.5
+bool new_bear_ob = close[1] > open[1] and body_ok1 and close < open[1] - atr_val * 0.5
+
+var float bob_hi  = na
+var float bob_lo  = na
+var int   bob_bar = -9999
+var float sob_hi  = na
+var float sob_lo  = na
+var int   sob_bar = -9999
+
+if new_bull_ob
+    bob_hi  := math.max(open[1], close[1])
+    bob_lo  := math.min(open[1], close[1])
+    bob_bar := bar_index
+if new_bear_ob
+    sob_hi  := math.max(open[1], close[1])
+    sob_lo  := math.min(open[1], close[1])
+    sob_bar := bar_index
+
+// ob_lb=20 (aligned with live bot, was 50)
+bool bob_active = not na(bob_hi) and (bar_index - bob_bar) <= ob_lb
+bool sob_active = not na(sob_hi) and (bar_index - sob_bar) <= ob_lb
+bool at_bull_ob = bob_active and close >= bob_lo and close <= bob_hi
+bool at_bear_ob = sob_active and close >= sob_lo and close <= sob_hi
+
+if show_ob_b and new_bull_ob
+    box.new(bar_index - 1, bob_hi, bar_index + 40, bob_lo, bgcolor=color.new(color.teal, 78), border_color=color.new(color.teal, 45), border_width=1)
+if show_ob_b and new_bear_ob
+    box.new(bar_index - 1, sob_hi, bar_index + 40, sob_lo, bgcolor=color.new(color.maroon, 78), border_color=color.new(color.maroon, 45), border_width=1)
+
+// ══════════════════════════════════════════════════════════════
+//  LIQUIDITY SWEEP DETECTION
+// ══════════════════════════════════════════════════════════════
+var int bar_bull_sweep = -9999
+var int bar_bear_sweep = -9999
+
+if not na(sl1) and low < sl1 and close > sl1
+    bar_bull_sweep := bar_index
+if not na(sh1) and high > sh1 and close < sh1
+    bar_bear_sweep := bar_index
+
+// sweep_bars=20 — matches live bot SWEEP_LOOKBACK_BARS=20
+bool bull_swept = (bar_index - bar_bull_sweep) <= sweep_bars
+bool bear_swept = (bar_index - bar_bear_sweep) <= sweep_bars
+
+// ══════════════════════════════════════════════════════════════
+//  SESSION DETECTION (UTC)
+//  V3 Optuna-optimized weights (session_config.yaml)
+// ══════════════════════════════════════════════════════════════
+int h_utc      = hour(time, "UTC")
+bool in_asian  = h_utc >= 0  and h_utc < 8
+bool in_london = h_utc >= 8  and h_utc < 16
+bool in_ny     = h_utc >= 13 and h_utc < 22
+bool in_overlap= h_utc >= 13 and h_utc < 16
+
+// Exness-specific time restrictions
+// Maintenance: 22:00–23:00 UTC (XAUUSDm daily gap, verified from M15 candle gaps)
+// Friday cutoff: 21:30 UTC (Exness metals weekend close, stop new entries)
+bool maintenance   = h_utc == 22
+bool friday_cutoff = dayofweek == dayofweek.friday and h_utc >= 21
+bool trading_ok    = not maintenance and not friday_cutoff
+
+// V3 Optuna-optimized session weights (was: Overlap=1.25, London/NY=1.10, Asian=0.70)
+float sess_w    = in_overlap ? 1.18 : (in_london or in_ny) ? 1.16 : in_asian ? 0.75 : 1.00
+float eff_thresh = min_conf / sess_w
+
+// Session backgrounds
+bgcolor(show_sess and maintenance       ? color.new(color.red,    88) : na, title="Exness Maintenance")
+bgcolor(show_sess and friday_cutoff     ? color.new(color.yellow, 88) : na, title="Friday Close Window")
+bgcolor(show_sess and in_overlap        ? color.new(color.green,  90) : na, title="Overlap Session")
+bgcolor(show_sess and in_london and not in_overlap ? color.new(color.blue,   93) : na, title="London Session")
+bgcolor(show_sess and in_ny and not in_overlap     ? color.new(color.orange, 93) : na, title="NY Session")
+bgcolor(show_sess and in_asian          ? color.new(color.purple, 95) : na, title="Asian Session")
+
+// ══════════════════════════════════════════════════════════════
+//  CONFLUENCE SCORING
+//  Counter-trend penalty: -0.10 (live bot improvement 2026-02-20)
+//  RSI scoring: Bull 40–85 (was 40–70), Bear 15–60 (was 30–60)
+//    → upper/lower limits now match RSI hard blocks
+// ══════════════════════════════════════════════════════════════
+
+// -- BULLISH --
+int   bull_smc_n = 0
+float bull_score = 0.0
+
+if in_bull_fvg
+    bull_score += w_fvg
+    bull_smc_n += 1
+if at_bull_ob
+    bull_score += w_ob
+    bull_smc_n += 1
+if bull_swept
+    bull_score += w_liq
+    bull_smc_n += 1
+if bull_choch
+    bull_score += w_choch
+    bull_smc_n += 1
+else if bull_bos
+    bull_score += w_bos
+    bull_smc_n += 1
+if ema_20 > ema_50
+    bull_score += w_ema
+// RSI bull confirmation: 40–85 (not oversold, not extreme overbought — aligns with hard block)
+if rsi_val > 40.0 and rsi_val < 85.0
+    bull_score += w_rsi
+if macd_hist > 0.0
+    bull_score += w_macd
+// MTF bonus: direction-aware (only adds if H1 bullish — matches live bot improvement 2026-02-20)
+if not na(h1_ema20) and not na(h1_ema50) and h1_ema20 > h1_ema50
+    bull_score += w_mtf
+// Counter-trend penalty: -0.10 for BUY in bearish trend (live bot: counter_trend_penalty=-0.10)
+float ctp_bull = (trend_now == -1) ? -0.10 : 0.0
+bull_score := math.min(1.0, math.max(0.0, bull_score + ctp_bull))
+
+// -- BEARISH --
+int   bear_smc_n = 0
+float bear_score = 0.0
+
+if in_bear_fvg
+    bear_score += w_fvg
+    bear_smc_n += 1
+if at_bear_ob
+    bear_score += w_ob
+    bear_smc_n += 1
+if bear_swept
+    bear_score += w_liq
+    bear_smc_n += 1
+if bear_choch
+    bear_score += w_choch
+    bear_smc_n += 1
+else if bear_bos
+    bear_score += w_bos
+    bear_smc_n += 1
+if ema_20 < ema_50
+    bear_score += w_ema
+// RSI bear confirmation: 15–60 (not overbought, not extreme oversold — aligns with hard block)
+if rsi_val > 15.0 and rsi_val < 60.0
+    bear_score += w_rsi
+if macd_hist < 0.0
+    bear_score += w_macd
+// MTF bonus: direction-aware (only adds if H1 bearish)
+if not na(h1_ema20) and not na(h1_ema50) and h1_ema20 < h1_ema50
+    bear_score += w_mtf
+// Counter-trend penalty: -0.10 for SELL in bullish trend
+float ctp_bear = (trend_now == 1) ? -0.10 : 0.0
+bear_score := math.min(1.0, math.max(0.0, bear_score + ctp_bear))
+
+// ══════════════════════════════════════════════════════════════
+//  ENTRY CONDITIONS
+// ══════════════════════════════════════════════════════════════
+// RSI bounce protection: don't BUY if RSI dropping from >75, don't SELL if rising from <25
+// (Checks: was RSI extreme in recent bars AND now moving away from extreme?)
+bool rsi_ok_bull = rsi_protect ? not (rsi_val > 75.0 and rsi_val > nz(rsi_val[3], rsi_val)) : true
+bool rsi_ok_bear = rsi_protect ? not (rsi_val < 25.0 and rsi_val < nz(rsi_val[3], rsi_val)) : true
+
+// RSI hard block: XAUUSD stays 70–85 in strong trends; only block at extreme >85 or <15
+// RSI_HARD_OVERBOUGHT=85, RSI_HARD_OVERSOLD=15 (entry_signals.py, fix 2026-02-22: was 90/10)
+bool rsi_hard_ok_bull = rsi_hard_blk ? rsi_val <= 85.0 : true
+bool rsi_hard_ok_bear = rsi_hard_blk ? rsi_val >= 15.0 : true
+
+bool struct_ok_bull = req_struct ? (bull_choch or bull_bos) : true
+bool struct_ok_bear = req_struct ? (bear_choch or bear_bos) : true
+bool smc_ok_bull    = bull_smc_n >= min_smc_sigs
+bool smc_ok_bear    = bear_smc_n >= min_smc_sigs
+
+bool enter_long  = bull_score >= eff_thresh and struct_ok_bull and smc_ok_bull and rsi_ok_bull and rsi_hard_ok_bull and trading_ok and strategy.position_size == 0
+bool enter_short = bear_score >= eff_thresh and struct_ok_bear and smc_ok_bear and rsi_ok_bear and rsi_hard_ok_bear and trading_ok and strategy.position_size == 0
+
+// ══════════════════════════════════════════════════════════════
+//  POSITION MANAGEMENT (SL / TP / BE / TRAIL / PARTIAL)
+//  BE: SL moves to entry at 0.77 RR (risk_config.yaml: be_trigger_rr=0.77)
+//  Trail: activates at 2.72 RR (risk_config.yaml: trail_activation_rr=2.72)
+//         then trails 50% of peak profit from entry
+//  Partial: closes at 65% of TP (effective_partial_rr = max(tp_rr*0.65, 1.0))
+// ══════════════════════════════════════════════════════════════
+float sl_dist = atr_val * sl_atr_mult
+float tp_dist = atr_val * tp_atr_mult
+// Partial close level: 65% of TP from entry (live bot: effective_partial_rr = max(tp_rr*0.65, 1.0))
+float partial_dist = tp_dist * 0.65
+
+var float trail_stop  = na
+var float entry_px    = na
+var float tp_px       = na
+var float peak_profit = 0.0
+var bool  be_done     = false
+
+if enter_long
+    entry_px    := close
+    trail_stop  := close - sl_dist
+    tp_px       := close + tp_dist
+    peak_profit := 0.0
+    be_done     := false
+if enter_short
+    entry_px    := close
+    trail_stop  := close + sl_dist
+    tp_px       := close - tp_dist
+    peak_profit := 0.0
+    be_done     := false
+
+if strategy.position_size > 0 and not na(entry_px)
+    float pnl = close - entry_px
+    peak_profit := math.max(peak_profit, pnl)
+    // BE at 0.77 RR (was 1.0 RR — V3 optimization: earlier breakeven protection)
+    if pnl >= sl_dist * 0.77 and not be_done
+        trail_stop := math.max(trail_stop, entry_px)
+        be_done    := true
+    // Trail activates at 2.72 RR (risk_config.yaml: trail_activation_rr=2.72)
+    if be_done and peak_profit >= sl_dist * 2.72
+        trail_stop := math.max(trail_stop, entry_px + peak_profit * 0.50)
+
+if strategy.position_size < 0 and not na(entry_px)
+    float pnl = entry_px - close
+    peak_profit := math.max(peak_profit, pnl)
+    // BE at 0.77 RR
+    if pnl >= sl_dist * 0.77 and not be_done
+        trail_stop := math.min(trail_stop, entry_px)
+        be_done    := true
+    // Trail activates at 2.72 RR
+    if be_done and peak_profit >= sl_dist * 2.72
+        trail_stop := math.min(trail_stop, entry_px - peak_profit * 0.50)
+
+// ══════════════════════════════════════════════════════════════
+//  STRATEGY EXECUTION
+// ══════════════════════════════════════════════════════════════
+if enter_long
+    strategy.entry("Long", strategy.long, comment="BUY " + str.tostring(math.round(bull_score * 100)) + "%")
+if enter_short
+    strategy.entry("Short", strategy.short, comment="SELL " + str.tostring(math.round(bear_score * 100)) + "%")
+
+if strategy.position_size > 0
+    strategy.exit("LX", from_entry="Long", stop=trail_stop, limit=tp_px)
+if strategy.position_size < 0
+    strategy.exit("SX", from_entry="Short", stop=trail_stop, limit=tp_px)
+
+// ══════════════════════════════════════════════════════════════
+//  VISUALIZATION
+// ══════════════════════════════════════════════════════════════
+plot(ema_20,  "EMA 20",  color=color.new(color.blue,   0), linewidth=1)
+plot(ema_50,  "EMA 50",  color=color.new(color.orange, 0), linewidth=1)
+plot(ema_100, "EMA 100", color=color.new(color.red,    0), linewidth=1)
+plot(ema_200, "EMA 200", color=color.new(color.purple, 0), linewidth=2)
+plot(strategy.position_size != 0 ? trail_stop : na, "Trail Stop", color=color.new(color.yellow, 0), linewidth=1, style=plot.style_stepline)
+
+// Partial close level (65% of TP from entry — effective_partial_rr = max(tp_rr*0.65, 1.0))
+float partial_long_px  = strategy.position_size > 0 and not na(entry_px) ? entry_px + partial_dist : na
+float partial_short_px = strategy.position_size < 0 and not na(entry_px) ? entry_px - partial_dist : na
+plot(show_partial ? partial_long_px  : na, "Partial Close (Long)",  color=color.new(color.aqua, 30), linewidth=1, style=plot.style_circles)
+plot(show_partial ? partial_short_px : na, "Partial Close (Short)", color=color.new(color.aqua, 30), linewidth=1, style=plot.style_circles)
+
+plotshape(show_swings and not na(ph), title="Swing High", location=location.abovebar, style=shape.diamond, color=color.new(color.orange, 40), size=size.tiny)
+plotshape(show_swings and not na(pl), title="Swing Low",  location=location.belowbar, style=shape.diamond, color=color.new(color.orange, 40), size=size.tiny)
+
+plotshape(bar_index == bar_bull_choch, title="Bull CHoCH", location=location.belowbar, style=shape.labelup,   color=color.lime,   textcolor=color.black, text="CHoCH", size=size.small)
+plotshape(bar_index == bar_bear_choch, title="Bear CHoCH", location=location.abovebar, style=shape.labeldown, color=color.red,    textcolor=color.white, text="CHoCH", size=size.small)
+plotshape(bar_index == bar_bull_bos,   title="Bull BOS",   location=location.belowbar, style=shape.labelup,   color=color.teal,   textcolor=color.white, text="BOS",   size=size.small)
+plotshape(bar_index == bar_bear_bos,   title="Bear BOS",   location=location.abovebar, style=shape.labeldown, color=color.orange, textcolor=color.black, text="BOS",   size=size.small)
+
+plotshape(show_sig and enter_long,  title="BUY Signal",  location=location.belowbar, style=shape.triangleup,   color=color.lime, size=size.normal)
+plotshape(show_sig and enter_short, title="SELL Signal", location=location.abovebar, style=shape.triangledown, color=color.red,  size=size.normal)
+
+if show_sig and enter_long
+    label.new(bar_index, low - atr_val * 1.2, "BUY " + str.tostring(math.round(bull_score * 100)) + "%\nSMC:" + str.tostring(bull_smc_n) + " | " + (bull_choch ? "CHoCH" : bull_bos ? "BOS" : "-") + "\nSL-" + str.tostring(math.round(sl_dist * 100) / 100) + " TP+" + str.tostring(math.round(tp_dist * 100) / 100) + "\nPartial+" + str.tostring(math.round(partial_dist * 100) / 100), style=label.style_label_up, color=color.new(color.lime, 15), textcolor=color.black, size=size.small)
+if show_sig and enter_short
+    label.new(bar_index, high + atr_val * 1.2, "SELL " + str.tostring(math.round(bear_score * 100)) + "%\nSMC:" + str.tostring(bear_smc_n) + " | " + (bear_choch ? "CHoCH" : bear_bos ? "BOS" : "-") + "\nSL+" + str.tostring(math.round(sl_dist * 100) / 100) + " TP-" + str.tostring(math.round(tp_dist * 100) / 100) + "\nPartial-" + str.tostring(math.round(partial_dist * 100) / 100), style=label.style_label_down, color=color.new(color.red, 15), textcolor=color.white, size=size.small)
+
+// ══════════════════════════════════════════════════════════════
+//  INFO TABLE (top-right)
+// ══════════════════════════════════════════════════════════════
+var table t = table.new(position.top_right, 2, 13, bgcolor=color.new(color.black, 65), border_color=color.new(color.gray, 50), border_width=1, frame_color=color.new(color.gray, 30), frame_width=1)
+
+// Update table every confirmed bar
+string s_sess = maintenance ? "MAINTENANCE" : friday_cutoff ? "FRI CLOSE" :
+               in_overlap ? "OVERLAP 1.18x" : (in_london and in_ny) ? "LON+NY 1.16x" : in_london ? "LONDON 1.16x" : in_ny ? "NY 1.16x" : "ASIAN 0.75x"
+color  c_sess = maintenance or friday_cutoff ? color.red : in_overlap ? color.lime : (in_london or in_ny) ? color.orange : color.gray
+string s_tr   = trend_now == 1 ? "BULLISH" : trend_now == -1 ? "BEARISH" : "NEUTRAL"
+color  c_tr   = trend_now == 1 ? color.lime : trend_now == -1 ? color.red : color.gray
+color  c_bull = bull_score >= eff_thresh ? color.lime : color.gray
+color  c_bear = bear_score >= eff_thresh ? color.red  : color.gray
+color  c_rsi  = rsi_val > 85 ? color.red : rsi_val < 15 ? color.lime : rsi_val > 70 ? color.orange : rsi_val < 30 ? color.aqua : color.white
+string s_mtf  = not na(h1_ema20) and h1_ema20 > h1_ema50 ? "BULL" : not na(h1_ema20) and h1_ema20 < h1_ema50 ? "BEAR" : "N/A"
+color  c_mtf  = not na(h1_ema20) and h1_ema20 > h1_ema50 ? color.lime : not na(h1_ema20) and h1_ema20 < h1_ema50 ? color.red : color.gray
+string s_struct = (bull_choch ? "uCHoCH " : bull_bos ? "uBOS " : "") + (bear_choch ? "dCHoCH" : bear_bos ? "dBOS" : "")
+
+// Partial close RR display (effective_partial_rr = max(tp_rr*0.65, 1.0))
+float partial_rr_val = math.max(tp_atr_mult * 0.65 / sl_atr_mult, 1.0)
+color c_be    = be_done ? color.lime : color.gray
+string s_be   = be_done ? "ACTIVE" : str.tostring(math.round(sl_atr_mult * 0.77 * 10) / 10) + "R"
+
+table.cell(t, 0, 0,  "Session",    text_color=color.white, text_size=size.small)
+table.cell(t, 1, 0,  s_sess,       text_color=c_sess,      text_size=size.small)
+table.cell(t, 0, 1,  "Threshold",  text_color=color.white, text_size=size.small)
+table.cell(t, 1, 1,  str.tostring(math.round(eff_thresh * 100)) + "%", text_color=color.yellow, text_size=size.small)
+table.cell(t, 0, 2,  "Bull Score", text_color=color.white, text_size=size.small)
+table.cell(t, 1, 2,  str.tostring(math.round(bull_score * 100)) + "%", text_color=c_bull, text_size=size.small)
+table.cell(t, 0, 3,  "Bear Score", text_color=color.white, text_size=size.small)
+table.cell(t, 1, 3,  str.tostring(math.round(bear_score * 100)) + "%", text_color=c_bear, text_size=size.small)
+table.cell(t, 0, 4,  "Bull SMC",   text_color=color.white, text_size=size.small)
+table.cell(t, 1, 4,  str.tostring(bull_smc_n) + "/" + str.tostring(min_smc_sigs), text_color=bull_smc_n >= min_smc_sigs ? color.lime : color.gray, text_size=size.small)
+table.cell(t, 0, 5,  "Bear SMC",   text_color=color.white, text_size=size.small)
+table.cell(t, 1, 5,  str.tostring(bear_smc_n) + "/" + str.tostring(min_smc_sigs), text_color=bear_smc_n >= min_smc_sigs ? color.red : color.gray, text_size=size.small)
+table.cell(t, 0, 6,  "Trend",      text_color=color.white, text_size=size.small)
+table.cell(t, 1, 6,  s_tr,         text_color=c_tr,        text_size=size.small)
+table.cell(t, 0, 7,  "Structure",  text_color=color.white, text_size=size.small)
+table.cell(t, 1, 7,  s_struct,     text_color=color.white, text_size=size.small)
+table.cell(t, 0, 8,  "RSI",        text_color=color.white, text_size=size.small)
+table.cell(t, 1, 8,  str.tostring(math.round(rsi_val * 10) / 10), text_color=c_rsi, text_size=size.small)
+table.cell(t, 0, 9,  "ATR",        text_color=color.white, text_size=size.small)
+table.cell(t, 1, 9,  str.tostring(math.round(atr_val * 100) / 100), text_color=color.white, text_size=size.small)
+table.cell(t, 0, 10, "H1 MTF",     text_color=color.white, text_size=size.small)
+table.cell(t, 1, 10, s_mtf,        text_color=c_mtf,       text_size=size.small)
+table.cell(t, 0, 11, "BE Trigger", text_color=color.white, text_size=size.small)
+table.cell(t, 1, 11, s_be,         text_color=c_be,        text_size=size.small)
+table.cell(t, 0, 12, "Partial RR", text_color=color.white, text_size=size.small)
+table.cell(t, 1, 12, str.tostring(math.round(partial_rr_val * 10) / 10) + "R @ 65%TP", text_color=color.aqua, text_size=size.small)

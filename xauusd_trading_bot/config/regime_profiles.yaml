@@ -1,0 +1,58 @@
+# Regime-Specific Parameter Profiles
+# Used by AdaptiveConfluenceScorer and StructureSLTPCalculator
+
+regime_weights:
+  trending:
+    smc_weight: 0.45
+    tech_weight: 0.20
+    market_weight: 0.25
+    mtf_weight: 0.10
+    min_confluence: 0.50
+    atr_sl_mult: 3.0
+    min_smc_signals: 1  # Trend continuation needs fewer confirmations
+
+  ranging:
+    smc_weight: 0.50
+    tech_weight: 0.25
+    market_weight: 0.15
+    mtf_weight: 0.10
+    min_confluence: 0.60
+    atr_sl_mult: 2.5
+    min_smc_signals: 2  # Range trades need more confirmation
+
+  breakout:
+    smc_weight: 0.35
+    tech_weight: 0.25
+    market_weight: 0.30
+    mtf_weight: 0.10
+    min_confluence: 0.55
+    atr_sl_mult: 3.5
+    min_smc_signals: 1  # Fast breakout entry
+
+  reversal:
+    smc_weight: 0.50
+    tech_weight: 0.20
+    market_weight: 0.15
+    mtf_weight: 0.15
+    min_confluence: 0.65
+    atr_sl_mult: 2.5
+    min_smc_signals: 2  # Reversals need strong confirmation
+
+  volatile:
+    smc_weight: 0.35
+    tech_weight: 0.25
+    market_weight: 0.30
+    mtf_weight: 0.10
+    min_confluence: 0.60
+    atr_sl_mult: 4.0
+    min_smc_signals: 2
+
+# Regime detection parameters
+regime_detection:
+  lookback_bars: 100
+  strong_trend_atr_pct: 50      # ATR percentile threshold for strong trend
+  strong_trend_ema_spread: 0.15  # Min EMA spread % for strong trend
+  strong_trend_score: 0.5       # Min trend score for strong trend
+  range_trend_score: 0.2        # Max trend score for range classification
+  breakout_atr_pct: 80          # ATR percentile for breakout
+  breakout_bb_pct: 75           # BB width percentile for breakout

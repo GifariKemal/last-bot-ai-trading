@@ -1,0 +1,14 @@
+{
+  "timestamp_utc": "2026-02-18T12:30:29.567140+00:00",
+  "cycle": 1,
+  "success": true,
+  "action": "UNKNOWN",
+  "price": null,
+  "h4_bias": "UNKNOWN",
+  "h1_trend": "UNKNOWN",
+  "session": "UNKNOWN",
+  "atr": null,
+  "reason": "",
+  "trade": null,
+  "report": "Here's your current account status:\n\n| Detail | Value |\n|---|---|\n| **Account Type** | **REAL** |\n| Balance | $5,818.05 |\n| Equity | $5,818.05 |\n| Free Margin | $5,818.05 |\n| Leverage | 1:500 |\n| Open Positions | 0 |\n| Pending Orders | 0 |\n\n**This is a REAL account with real money.** I will not place trades autonomously.\n\nBefore I do anything, I need you to tell me:\n\n1. **What symbol(s)** do you want to trade? (e.g., EURUSD, XAUUSD, etc.)\n2. **What is your strategy?** (technical analysis, specific signals, etc.)\n3. **What is your risk per trade?** (e.g., % of account, fixed lot size)\n4. **What specific trade(s)** do you want me to place? (direction, entry, SL, TP)\n\nI'm here to help you trade, but I need your explicit direction on each trade for a real-money account.\n"
+}

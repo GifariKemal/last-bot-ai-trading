@@ -1,0 +1,14 @@
+{
+  "timestamp_utc": "2026-02-18T15:30:17.838906+00:00",
+  "cycle": 4,
+  "success": false,
+  "action": "UNKNOWN",
+  "price": null,
+  "h4_bias": "UNKNOWN",
+  "h1_trend": "UNKNOWN",
+  "session": "UNKNOWN",
+  "atr": null,
+  "reason": "",
+  "trade": null,
+  "report": "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"},\"request_id\":\"req_011CYFmppQ7YMhGNDUoZzBoh\"}\n"
+}

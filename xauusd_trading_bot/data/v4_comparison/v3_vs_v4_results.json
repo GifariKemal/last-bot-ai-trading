@@ -1,0 +1,172 @@
+{
+  "timestamp": "2026-02-21T21:07:31.739503",
+  "period": "2025-08-25 to 2026-02-21",
+  "months": 6,
+  "symbol": "XAUUSD",
+  "timeframe": "M15",
+  "v3_metrics": {
+    "total_trades": 169,
+    "winning_trades": 103,
+    "losing_trades": 66,
+    "breakeven_trades": 0,
+    "win_rate": 60.95,
+    "total_profit": 2959.3,
+    "gross_profit": 7078.47,
+    "gross_loss": 4119.17,
+    "profit_factor": 1.72,
+    "avg_profit": 17.51,
+    "avg_win": 68.72,
+    "avg_loss": -62.41,
+    "avg_rr_ratio": 1.1,
+    "largest_win": 300.0,
+    "largest_loss": -200.0,
+    "max_consecutive_wins": 11,
+    "max_consecutive_losses": 5,
+    "max_drawdown": 400.0,
+    "max_drawdown_percent": 4.0,
+    "initial_balance": 10000.0,
+    "final_balance": 12959.3,
+    "total_return": 2959.3,
+    "total_return_percent": 29.59,
+    "sharpe_ratio": 0.19,
+    "expectancy": 17.51,
+    "duration_days": 180,
+    "trades_per_day": 0.94,
+    "start_date": "2025-08-25 21:03:17.373003",
+    "end_date": "2026-02-21 21:03:17.373003",
+    "regime_breakdown": {
+      "WEAK_TREND_UP": {
+        "trades": 65,
+        "wins": 43,
+        "losses": 22,
+        "win_rate": 66.15,
+        "total_profit": 1777.84,
+        "avg_profit": 27.35,
+        "profit_factor": 3.07
+      },
+      "WEAK_TREND_DOWN": {
+        "trades": 33,
+        "wins": 16,
+        "losses": 17,
+        "win_rate": 48.48,
+        "total_profit": -465.96,
+        "avg_profit": -14.12,
+        "profit_factor": 0.48
+      },
+      "STRONG_TREND_UP": {
+        "trades": 32,
+        "wins": 23,
+        "losses": 9,
+        "win_rate": 71.88,
+        "total_profit": 1346.92,
+        "avg_profit": 42.09,
+        "profit_factor": 2.56
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 35,
+        "wins": 18,
+        "losses": 17,
+        "win_rate": 51.43,
+        "total_profit": 323.31,
+        "avg_profit": 9.24,
+        "profit_factor": 1.22
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": -31.6,
+        "avg_profit": -15.8,
+        "profit_factor": 0.14
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 8.78,
+        "avg_profit": 4.39,
+        "profit_factor": 0
+      }
+    }
+  },
+  "v4_metrics": {
+    "total_trades": 187,
+    "winning_trades": 123,
+    "losing_trades": 64,
+    "breakeven_trades": 0,
+    "win_rate": 65.78,
+    "total_profit": 3006.04,
+    "gross_profit": 6141.31,
+    "gross_loss": 3135.26,
+    "profit_factor": 1.96,
+    "avg_profit": 16.08,
+    "avg_win": 49.93,
+    "avg_loss": -48.99,
+    "avg_rr_ratio": 1.02,
+    "largest_win": 373.87,
+    "largest_loss": -200.0,
+    "max_consecutive_wins": 11,
+    "max_consecutive_losses": 3,
+    "max_drawdown": 606.16,
+    "max_drawdown_percent": 6.06,
+    "initial_balance": 10000.0,
+    "final_balance": 13006.04,
+    "total_return": 3006.04,
+    "total_return_percent": 30.06,
+    "sharpe_ratio": 0.21,
+    "expectancy": 16.08,
+    "duration_days": 180,
+    "trades_per_day": 1.04,
+    "start_date": "2025-08-25 21:03:17.373003",
+    "end_date": "2026-02-21 21:03:17.373003",
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 53,
+        "wins": 34,
+        "losses": 19,
+        "win_rate": 64.15,
+        "total_profit": 5.64,
+        "avg_profit": 0.11,
+        "profit_factor": 1.01
+      },
+      "WEAK_TREND_UP": {
+        "trades": 66,
+        "wins": 46,
+        "losses": 20,
+        "win_rate": 69.7,
+        "total_profit": 831.77,
+        "avg_profit": 12.6,
+        "profit_factor": 2.13
+      },
+      "STRONG_TREND_UP": {
+        "trades": 34,
+        "wins": 24,
+        "losses": 10,
+        "win_rate": 70.59,
+        "total_profit": 1296.03,
+        "avg_profit": 38.12,
+        "profit_factor": 3.49
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 1,
+        "wins": 0,
+        "losses": 1,
+        "win_rate": 0.0,
+        "total_profit": -61.26,
+        "avg_profit": -61.26,
+        "profit_factor": 0.0
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 33,
+        "wins": 19,
+        "losses": 14,
+        "win_rate": 57.58,
+        "total_profit": 933.86,
+        "avg_profit": 28.3,
+        "profit_factor": 1.82
+      }
+    }
+  }
+}

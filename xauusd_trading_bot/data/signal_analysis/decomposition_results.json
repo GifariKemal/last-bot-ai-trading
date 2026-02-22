@@ -1,0 +1,665 @@
+{
+  "individual_signals": {
+    "fvg": {
+      "present": {
+        "n": 4892,
+        "win_rate": 0.7312,
+        "avg_rr": 25.067,
+        "avg_mfe": 28.57,
+        "avg_mae": 7.24,
+        "profit_factor": 7.08,
+        "win_rate_ci_95": [
+          0.7185,
+          0.7437
+        ]
+      },
+      "absent": {
+        "n": 18350,
+        "win_rate": 0.733,
+        "avg_rr": 23.721,
+        "avg_mfe": 28.64,
+        "avg_mae": 6.96,
+        "profit_factor": 7.68,
+        "win_rate_ci_95": [
+          0.7264,
+          0.7394
+        ]
+      },
+      "n_present": 4892,
+      "n_absent": 18350,
+      "session_breakdown": {
+        "asian": {
+          "n": 1976,
+          "win_rate": 0.7368,
+          "avg_rr": 27.818,
+          "avg_mfe": 27.55,
+          "avg_mae": 7.17,
+          "profit_factor": 6.67,
+          "win_rate_ci_95": [
+            0.7166,
+            0.7561
+          ]
+        },
+        "london": {
+          "n": 1079,
+          "win_rate": 0.6969,
+          "avg_rr": 20.968,
+          "avg_mfe": 25.3,
+          "avg_mae": 6.79,
+          "profit_factor": 5.79,
+          "win_rate_ci_95": [
+            0.67,
+            0.7257
+          ]
+        },
+        "new_york": {
+          "n": 984,
+          "win_rate": 0.747,
+          "avg_rr": 21.723,
+          "avg_mfe": 28.21,
+          "avg_mae": 6.57,
+          "profit_factor": 8.72,
+          "win_rate_ci_95": [
+            0.7195,
+            0.7724
+          ]
+        },
+        "overlap": {
+          "n": 853,
+          "win_rate": 0.7433,
+          "avg_rr": 27.734,
+          "avg_mfe": 35.47,
+          "avg_mae": 8.73,
+          "profit_factor": 8.06,
+          "win_rate_ci_95": [
+            0.7116,
+            0.7726
+          ]
+        }
+      },
+      "significance": {
+        "chi2": 0.066,
+        "significant_at_005": false
+      }
+    },
+    "ob": {
+      "present": {
+        "n": 93,
+        "win_rate": 0.9462,
+        "avg_rr": 228.702,
+        "avg_mfe": 121.58,
+        "avg_mae": 16.2,
+        "profit_factor": 20.73,
+        "win_rate_ci_95": [
+          0.9032,
+          0.9892
+        ]
+      },
+      "absent": {
+        "n": 23149,
+        "win_rate": 0.7318,
+        "avg_rr": 23.181,
+        "avg_mfe": 28.25,
+        "avg_mae": 6.98,
+        "profit_factor": 7.46,
+        "win_rate_ci_95": [
+          0.726,
+          0.7373
+        ]
+      },
+      "n_present": 93,
+      "n_absent": 23149,
+      "session_breakdown": {
+        "asian": {
+          "n": 38,
+          "win_rate": 0.8947,
+          "avg_rr": 26.095,
+          "avg_mfe": 137.15,
+          "avg_mae": 23.22,
+          "profit_factor": 11.0,
+          "win_rate_ci_95": [
+            0.7895,
+            0.9737
+          ]
+        },
+        "london": null,
+        "new_york": null,
+        "overlap": null
+      },
+      "significance": {
+        "chi2": 21.748,
+        "significant_at_005": true
+      }
+    },
+    "liq_sweep": {
+      "present": {
+        "n": 2854,
+        "win_rate": 0.7484,
+        "avg_rr": 26.211,
+        "avg_mfe": 28.04,
+        "avg_mae": 6.58,
+        "profit_factor": 8.36,
+        "win_rate_ci_95": [
+          0.7323,
+          0.7638
+        ]
+      },
+      "absent": {
+        "n": 20388,
+        "win_rate": 0.7304,
+        "avg_rr": 23.695,
+        "avg_mfe": 28.71,
+        "avg_mae": 7.08,
+        "profit_factor": 7.45,
+        "win_rate_ci_95": [
+          0.724,
+          0.7362
+        ]
+      },
+      "n_present": 2854,
+      "n_absent": 20388,
+      "session_breakdown": {
+        "asian": {
+          "n": 1081,
+          "win_rate": 0.7447,
+          "avg_rr": 32.569,
+          "avg_mfe": 25.15,
+          "avg_mae": 5.95,
+          "profit_factor": 8.1,
+          "win_rate_ci_95": [
+            0.7179,
+            0.7715
+          ]
+        },
+        "london": {
+          "n": 670,
+          "win_rate": 0.7269,
+          "avg_rr": 19.379,
+          "avg_mfe": 26.02,
+          "avg_mae": 6.72,
+          "profit_factor": 6.68,
+          "win_rate_ci_95": [
+            0.6925,
+            0.7597
+          ]
+        },
+        "new_york": {
+          "n": 518,
+          "win_rate": 0.7625,
+          "avg_rr": 16.683,
+          "avg_mfe": 26.77,
+          "avg_mae": 5.97,
+          "profit_factor": 10.28,
+          "win_rate_ci_95": [
+            0.7259,
+            0.7954
+          ]
+        },
+        "overlap": {
+          "n": 585,
+          "win_rate": 0.7675,
+          "avg_rr": 30.725,
+          "avg_mfe": 36.83,
+          "avg_mae": 8.1,
+          "profit_factor": 9.42,
+          "win_rate_ci_95": [
+            0.7333,
+            0.8
+          ]
+        }
+      },
+      "significance": {
+        "chi2": 4.138,
+        "significant_at_005": true
+      }
+    },
+    "bos": {
+      "present": {
+        "n": 2106,
+        "win_rate": 0.7132,
+        "avg_rr": 19.786,
+        "avg_mfe": 30.79,
+        "avg_mae": 8.63,
+        "profit_factor": 5.7,
+        "win_rate_ci_95": [
+          0.6932,
+          0.7332
+        ]
+      },
+      "absent": {
+        "n": 21136,
+        "win_rate": 0.7346,
+        "avg_rr": 24.424,
+        "avg_mfe": 28.41,
+        "avg_mae": 6.85,
+        "profit_factor": 7.81,
+        "win_rate_ci_95": [
+          0.7285,
+          0.7407
+        ]
+      },
+      "n_present": 2106,
+      "n_absent": 21136,
+      "session_breakdown": {
+        "asian": {
+          "n": 772,
+          "win_rate": 0.7435,
+          "avg_rr": 33.68,
+          "avg_mfe": 34.85,
+          "avg_mae": 9.14,
+          "profit_factor": 6.34,
+          "win_rate_ci_95": [
+            0.715,
+            0.7733
+          ]
+        },
+        "london": {
+          "n": 490,
+          "win_rate": 0.6878,
+          "avg_rr": 10.328,
+          "avg_mfe": 25.82,
+          "avg_mae": 8.49,
+          "profit_factor": 4.22,
+          "win_rate_ci_95": [
+            0.649,
+            0.7286
+          ]
+        },
+        "new_york": {
+          "n": 384,
+          "win_rate": 0.6953,
+          "avg_rr": 14.38,
+          "avg_mfe": 27.86,
+          "avg_mae": 7.85,
+          "profit_factor": 5.37,
+          "win_rate_ci_95": [
+            0.6484,
+            0.737
+          ]
+        },
+        "overlap": {
+          "n": 460,
+          "win_rate": 0.7043,
+          "avg_rr": 11.057,
+          "avg_mfe": 31.7,
+          "avg_mae": 8.59,
+          "profit_factor": 6.58,
+          "win_rate_ci_95": [
+            0.663,
+            0.7435
+          ]
+        }
+      },
+      "significance": {
+        "chi2": 4.467,
+        "significant_at_005": true
+      }
+    },
+    "choch": {
+      "present": {
+        "n": 1351,
+        "win_rate": 0.7217,
+        "avg_rr": 13.979,
+        "avg_mfe": 25.56,
+        "avg_mae": 6.99,
+        "profit_factor": 6.13,
+        "win_rate_ci_95": [
+          0.6987,
+          0.7454
+        ]
+      },
+      "absent": {
+        "n": 21891,
+        "win_rate": 0.7333,
+        "avg_rr": 24.623,
+        "avg_mfe": 28.81,
+        "avg_mae": 7.02,
+        "profit_factor": 7.64,
+        "win_rate_ci_95": [
+          0.7272,
+          0.7392
+        ]
+      },
+      "n_present": 1351,
+      "n_absent": 21891,
+      "session_breakdown": {
+        "asian": {
+          "n": 517,
+          "win_rate": 0.7041,
+          "avg_rr": 15.262,
+          "avg_mfe": 22.52,
+          "avg_mae": 6.4,
+          "profit_factor": 5.31,
+          "win_rate_ci_95": [
+            0.6654,
+            0.7409
+          ]
+        },
+        "london": {
+          "n": 252,
+          "win_rate": 0.8095,
+          "avg_rr": 11.012,
+          "avg_mfe": 22.25,
+          "avg_mae": 5.23,
+          "profit_factor": 12.18,
+          "win_rate_ci_95": [
+            0.7619,
+            0.8533
+          ]
+        },
+        "new_york": {
+          "n": 340,
+          "win_rate": 0.7176,
+          "avg_rr": 17.651,
+          "avg_mfe": 28.61,
+          "avg_mae": 7.36,
+          "profit_factor": 6.53,
+          "win_rate_ci_95": [
+            0.6676,
+            0.7647
+          ]
+        },
+        "overlap": {
+          "n": 242,
+          "win_rate": 0.6736,
+          "avg_rr": 9.166,
+          "avg_mfe": 31.19,
+          "avg_mae": 9.55,
+          "profit_factor": 4.85,
+          "win_rate_ci_95": [
+            0.6157,
+            0.7355
+          ]
+        }
+      },
+      "significance": {
+        "chi2": 0.878,
+        "significant_at_005": false
+      }
+    }
+  },
+  "two_signal_combos": {
+    "fvg+ob": {
+      "stats": null,
+      "n_samples": 22
+    },
+    "fvg+liq_sweep": {
+      "stats": {
+        "n": 796,
+        "win_rate": 0.7374,
+        "avg_rr": 41.742,
+        "avg_mfe": 29.8,
+        "avg_mae": 7.18,
+        "profit_factor": 8.1,
+        "win_rate_ci_95": [
+          0.706,
+          0.7676
+        ]
+      },
+      "n_samples": 796
+    },
+    "fvg+bos": {
+      "stats": {
+        "n": 600,
+        "win_rate": 0.7083,
+        "avg_rr": 30.953,
+        "avg_mfe": 32.97,
+        "avg_mae": 9.09,
+        "profit_factor": 5.6,
+        "win_rate_ci_95": [
+          0.6717,
+          0.7434
+        ]
+      },
+      "n_samples": 600
+    },
+    "fvg+choch": {
+      "stats": {
+        "n": 366,
+        "win_rate": 0.7022,
+        "avg_rr": 9.54,
+        "avg_mfe": 25.92,
+        "avg_mae": 7.42,
+        "profit_factor": 5.69,
+        "win_rate_ci_95": [
+          0.6557,
+          0.7459
+        ]
+      },
+      "n_samples": 366
+    },
+    "ob+liq_sweep": {
+      "stats": null,
+      "n_samples": 4
+    },
+    "ob+bos": {
+      "stats": null,
+      "n_samples": 11
+    },
+    "ob+choch": {
+      "stats": null,
+      "n_samples": 5
+    },
+    "liq_sweep+bos": {
+      "stats": {
+        "n": 231,
+        "win_rate": 0.71,
+        "avg_rr": 47.924,
+        "avg_mfe": 29.58,
+        "avg_mae": 7.37,
+        "profit_factor": 7.52,
+        "win_rate_ci_95": [
+          0.6494,
+          0.7706
+        ]
+      },
+      "n_samples": 231
+    },
+    "liq_sweep+choch": {
+      "stats": {
+        "n": 144,
+        "win_rate": 0.7361,
+        "avg_rr": 13.835,
+        "avg_mfe": 24.06,
+        "avg_mae": 6.93,
+        "profit_factor": 5.73,
+        "win_rate_ci_95": [
+          0.6597,
+          0.8056
+        ]
+      },
+      "n_samples": 144
+    },
+    "bos+choch": {
+      "stats": null,
+      "n_samples": 0
+    }
+  },
+  "three_signal_combos": {
+    "fvg+ob+liq_sweep": {
+      "stats": null,
+      "n_samples": 1
+    },
+    "fvg+ob+bos": {
+      "stats": null,
+      "n_samples": 6
+    },
+    "fvg+ob+choch": {
+      "stats": null,
+      "n_samples": 2
+    },
+    "fvg+liq_sweep+bos": {
+      "stats": {
+        "n": 77,
+        "win_rate": 0.6883,
+        "avg_rr": 127.365,
+        "avg_mfe": 38.01,
+        "avg_mae": 8.33,
+        "profit_factor": 9.1,
+        "win_rate_ci_95": [
+          0.5841,
+          0.7795
+        ]
+      },
+      "n_samples": 77
+    },
+    "fvg+liq_sweep+choch": {
+      "stats": {
+        "n": 47,
+        "win_rate": 0.7021,
+        "avg_rr": 13.23,
+        "avg_mfe": 23.88,
+        "avg_mae": 8.14,
+        "profit_factor": 4.85,
+        "win_rate_ci_95": [
+          0.5745,
+          0.8298
+        ]
+      },
+      "n_samples": 47
+    },
+    "fvg+bos+choch": {
+      "stats": null,
+      "n_samples": 0
+    },
+    "ob+liq_sweep+bos": {
+      "stats": null,
+      "n_samples": 0
+    },
+    "ob+liq_sweep+choch": {
+      "stats": null,
+      "n_samples": 1
+    },
+    "ob+bos+choch": {
+      "stats": null,
+      "n_samples": 0
+    },
+    "liq_sweep+bos+choch": {
+      "stats": null,
+      "n_samples": 0
+    }
+  },
+  "ob_sensitivity_sweep": [
+    {
+      "note": "Run separate OB sweep with run_signal_decomposition.py --ob-sweep",
+      "current_ob_rate": 0.004001376817829791,
+      "current_ob_count": 93,
+      "total_bars_analyzed": 23242
+    }
+  ],
+  "tiers": {
+    "tier_1": [
+      {
+        "signal": "ob",
+        "multiplier": 1.2,
+        "win_rate": 0.9462,
+        "profit_factor": 20.73,
+        "n": 93,
+        "significant": true,
+        "composite": 19.614726
+      },
+      {
+        "signal": "liq_sweep",
+        "multiplier": 1.2,
+        "win_rate": 0.7484,
+        "profit_factor": 8.36,
+        "n": 2854,
+        "significant": true,
+        "composite": 6.2566239999999995
+      },
+      {
+        "signal": "bos",
+        "multiplier": 1.2,
+        "win_rate": 0.7132,
+        "profit_factor": 5.7,
+        "n": 2106,
+        "significant": true,
+        "composite": 4.06524
+      },
+      {
+        "signal": "fvg+liq_sweep",
+        "multiplier": 1.3,
+        "win_rate": 0.7374,
+        "profit_factor": 8.1,
+        "n": 796,
+        "is_combo": true
+      },
+      {
+        "signal": "fvg+bos",
+        "multiplier": 1.3,
+        "win_rate": 0.7083,
+        "profit_factor": 5.6,
+        "n": 600,
+        "is_combo": true
+      },
+      {
+        "signal": "fvg+choch",
+        "multiplier": 1.3,
+        "win_rate": 0.7022,
+        "profit_factor": 5.69,
+        "n": 366,
+        "is_combo": true
+      },
+      {
+        "signal": "liq_sweep+bos",
+        "multiplier": 1.3,
+        "win_rate": 0.71,
+        "profit_factor": 7.52,
+        "n": 231,
+        "is_combo": true
+      },
+      {
+        "signal": "liq_sweep+choch",
+        "multiplier": 1.3,
+        "win_rate": 0.7361,
+        "profit_factor": 5.73,
+        "n": 144,
+        "is_combo": true
+      },
+      {
+        "signal": "fvg+liq_sweep+bos",
+        "multiplier": 1.3,
+        "win_rate": 0.6883,
+        "profit_factor": 9.1,
+        "n": 77,
+        "is_combo": true
+      },
+      {
+        "signal": "fvg+liq_sweep+choch",
+        "multiplier": 1.3,
+        "win_rate": 0.7021,
+        "profit_factor": 4.85,
+        "n": 47,
+        "is_combo": true
+      }
+    ],
+    "tier_2": [
+      {
+        "signal": "fvg",
+        "multiplier": 1.0,
+        "win_rate": 0.7312,
+        "profit_factor": 7.08,
+        "n": 4892,
+        "significant": false,
+        "composite": 5.176896
+      },
+      {
+        "signal": "choch",
+        "multiplier": 1.0,
+        "win_rate": 0.7217,
+        "profit_factor": 6.13,
+        "n": 1351,
+        "significant": false,
+        "composite": 4.424021
+      }
+    ],
+    "tier_3": []
+  },
+  "metadata": {
+    "total_bars": 23362,
+    "analyzed_bars": 23242,
+    "forward_bars": 20,
+    "min_samples": 30,
+    "timestamp": "2026-02-19T07:22:52.449040"
+  }
+}

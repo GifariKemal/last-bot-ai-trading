@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / Secrets
+.env
+config/mt5_config.yaml
+
+# Logs
+logs/
+*.log
+data/event_backtest/logs/
+
+# Data files (large)
+data/market_history/*.parquet
+data/event_backtest/db/*.db
+data/event_backtest/cache/
+
+# Optimization run logs (large)
+optimization_run.log
+
+# Trade history (generated at runtime)
+data/trade_history/*.json
+data/trade_history/*.csv
+
+# Backtest results (keep structure, ignore generated data)
+data/backtest_results/*.json
+data/backtest_results/*.csv
+
+# OS
+Thumbs.db
+.DS_Store

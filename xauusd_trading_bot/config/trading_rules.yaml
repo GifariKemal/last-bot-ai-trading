@@ -1,0 +1,184 @@
+# Trading Rules and Strategy Configuration
+
+strategy:
+  name: "Smart Money Concepts (SMC)"
+  type: "multi_timeframe"
+
+  entry:
+    min_confluence_score: 0.60  # Raised from 0.55: filters CHoCH-only signals (0.62), reduces overtrading
+    require_mtf_alignment: false  # MTF already weighted in confluence (0.10), hard gate causes double-gating
+    require_structure_support: true  # Require BOS or CHoCH - proven config (PF=2.45)
+    require_fvg_or_ob: false  # FVG/OB already scored in confluence (no double-gating)
+
+    # H1 Bias Filter: REMOVED in V3 — replaced by regime-adaptive scoring
+    # use_h1_bias_filter: false  # deprecated
+    # h1_counter_trend_min_confluence: 0.75  # deprecated
+
+    # Entry timing
+    prefer_overlap_session: true  # Prefer London-NY overlap
+    avoid_news_events: true  # Avoid trading during high-impact news
+    news_buffer_minutes: 30  # Minutes before/after news to avoid
+
+  exit:
+    use_structure_exit: true  # Exit on opposite structure break
+    use_time_exit: true  # Exit if no progress
+    time_exit_hours: 48  # Match recovery manager max time (was 24)
+    use_opposite_signal: true  # Exit on opposite entry signal
+    use_session_close_exit: true  # Exit/evaluate at NY Close
+    use_recovery_zone_exit: true  # Damage control for deep-loss recovery
+
+    # Recovery Zone: exit positions that recovered from deep loss
+    recovery_zone:
+      enabled: true
+      deep_loss_threshold: 0.75    # 75% of SL distance = truly deep loss (was 0.60)
+      recovery_threshold: -0.05    # must recover past breakeven to +5% (was 0.10 = still losing)
+      min_hold_minutes: 30         # don't trigger on quick whipsaws
+
+# Smart Money Concepts Indicators Configuration
+
+smc_indicators:
+  fair_value_gaps:
+    enabled: true
+    min_gap_pips: 5  # Minimum gap size in pips
+    max_age_bars: 100  # How many bars back to look
+    weight: 0.20  # Weight in confluence score
+
+  order_blocks:
+    enabled: true
+    lookback_bars: 50
+    min_body_percent: 60  # Minimum candle body as % of total range
+    require_strong_move: true  # Require strong move after OB
+    strong_move_bars: 5  # Bars to check for strong move
+    strong_move_percent: 0.45  # V3 Optuna-optimized (was 1.0 which disabled OB)
+    weight: 0.25
+
+  liquidity:
+    enabled: true
+    equal_level_tolerance_pips: 3  # Tolerance for equal highs/lows
+    lookback_bars: 30
+    min_touches: 2  # Minimum touches to form liquidity level
+    sweep_confirmation_bars: 20  # Bars to confirm sweep (5 hours) - sweeps are macro events
+    weight: 0.20
+
+  structure:
+    enabled: true
+    swing_lookback: 10  # Bars to each side for swing detection
+    bos_confirmation_bars: 2  # Bars to confirm break of structure
+    choch_weight: 0.30  # Higher weight for CHoCH (stronger signal)
+    bos_weight: 0.15
+
+# Technical Indicators Configuration
+
+technical_indicators:
+  atr:
+    period: 14
+    smoothing: "ema"  # ema, sma, wilder
+
+  ema:
+    enabled: true
+    periods: [20, 50, 100, 200]
+    use_for_trend: true
+    weight: 0.10
+
+  rsi:
+    enabled: true
+    period: 14
+    overbought: 70
+    oversold: 30
+    weight: 0.08
+
+  macd:
+    enabled: true
+    fast_period: 12
+    slow_period: 26
+    signal_period: 9
+    weight: 0.07
+
+  bollinger_bands:
+    enabled: true
+    period: 20
+    std_dev: 2.0
+    weight: 0.05
+
+# Market Condition Analysis
+
+market_conditions:
+  trend_detection:
+    method: "ema_slope"  # ema_slope, adx, structure
+    strong_trend_threshold: 0.7
+    weak_trend_threshold: 0.3
+
+  volatility_classification:
+    method: "atr_percentile"  # atr_percentile, bollinger_width
+    lookback_bars: 100
+    low_threshold: 30  # Below 30th percentile = low volatility
+    high_threshold: 70  # Above 70th percentile = high volatility
+
+  market_state:
+    # Adjustments based on market state
+    trending:
+      confluence_adjustment: 0.0  # No adjustment
+      position_size_multiplier: 1.0
+    ranging:
+      confluence_adjustment: 0.05  # Require higher confluence
+      position_size_multiplier: 0.8  # Reduce size
+    volatile:
+      confluence_adjustment: 0.05  # Higher confluence required
+      position_size_multiplier: 0.6  # Significantly reduce size
+
+# Multi-Timeframe Analysis
+
+mtf_analysis:
+  trend_timeframe: "H1"  # Higher timeframe for trend
+  entry_timeframe: "M15"  # Primary entry timeframe
+  confirmation_timeframes: ["M5", "M1"]  # Lower timeframes for confirmation
+
+  alignment:
+    require_all_aligned: false  # If true, all TFs must agree
+    require_majority_aligned: true  # If true, majority must agree
+    weight_higher_timeframes: true  # Give more weight to higher TFs
+
+  # Lower-Timeframe (M5) Entry Confirmation
+  ltf_confirmation:
+    enabled: true
+    lookback_bars: 6       # 6 M5 bars = 30 minutes
+    momentum_weight: 0.40
+    structure_weight: 0.30
+    rejection_weight: 0.30
+
+# Confluence Scoring Weights
+
+confluence_weights:
+  # Category weights (Optimized via Optuna Trial 16)
+  smc: 0.40             # SMC signals weight
+  technical: 0.25        # Technical indicators weight
+  market_condition: 0.25 # Market conditions weight
+  mtf_alignment: 0.10   # MTF alignment weight
+
+  # SMC Factors (within smc category)
+  fvg: 0.20
+  order_block: 0.25
+  liquidity_sweep: 0.20
+  structure_break: 0.30  # CHoCH or BOS
+
+  # Technical Factors (within technical category)
+  ema_alignment: 0.10
+  rsi_confirmation: 0.08
+  macd_confirmation: 0.07
+  bollinger_confirmation: 0.05
+
+  # Bonus Factors
+  session_bonus: 0.10  # Bonus during optimal session
+  mtf_alignment_bonus: 0.15  # Bonus for perfect MTF alignment
+  ltf_confirmation_bonus: 0.10  # Bonus for M5 momentum/structure confirmation
+  pd_zone_bonus: 0.00    # ICT P/D zone: disabled - M15 swing range too noisy; needs H4/Daily dealing range
+  pd_zone_penalty: 0.00  # ICT P/D zone: disabled (set > 0 if H4/Daily data available)
+
+# Signal Validation
+
+signal_validation:
+  min_bars_since_last_signal: 5  # Prevent too frequent signals
+  min_price_change_pips: 10  # Minimum price change for new signal
+  check_recent_false_signals: true
+  false_signal_lookback_bars: 50
+  reduce_score_for_false_signals: 0.10  # Score reduction per recent false signal

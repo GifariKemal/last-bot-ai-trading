@@ -1,0 +1,105 @@
+# Trading Session Configuration
+
+sessions:
+  asian:
+    name: "Asian Session"
+    start_utc: "00:00"
+    end_utc: "08:00"
+    weight: 0.75  # V3 Optuna-optimized (was 0.7)
+    min_confluence_adjustment: 0.05  # Require slightly higher confluence
+    description: "Tokyo session - Lower volatility, still tradeable"
+
+  london:
+    name: "London Session"
+    start_utc: "08:00"
+    end_utc: "16:00"
+    weight: 1.16  # V3 Optuna-optimized (was 1.1)
+    min_confluence_adjustment: 0.0
+    description: "London session - Good volatility and liquidity"
+
+  new_york:
+    name: "New York Session"
+    start_utc: "13:00"
+    end_utc: "22:00"
+    weight: 1.16  # V3 Optuna-optimized (was 1.1)
+    min_confluence_adjustment: 0.0
+    description: "New York session - High volatility and liquidity"
+
+  overlap:
+    name: "London-NY Overlap"
+    start_utc: "13:00"
+    end_utc: "16:00"
+    weight: 1.18  # V3 Optuna-optimized (was 1.25)
+    min_confluence_adjustment: -0.05  # Can accept slightly lower confluence
+    description: "Overlap session - Best liquidity and movement for XAUUSD"
+
+# Session preferences
+preferences:
+  preferred_sessions: ["overlap", "london", "new_york"]
+  avoid_sessions: []  # Empty = trade all sessions
+
+  # Adjust strategy during different sessions
+  session_adjustments:
+    asian:
+      reduce_position_size: true
+      size_multiplier: 0.7
+      avoid_aggressive_entries: true
+
+    overlap:
+      increase_position_size: false  # Keep conservative
+      allow_more_trades: true
+      aggressive_entries_allowed: true
+
+# Time-based restrictions
+restrictions:
+  # Days of week (0=Monday, 6=Sunday)
+  trading_days: [0, 1, 2, 3, 4]  # Monday to Friday
+  avoid_weekends: true
+
+  # Specific hours to avoid (UTC)
+  # Exness XAUUSDm daily maintenance: 22:00-23:00 UTC
+  # (verified from M15 candle gaps: last candle 21:45, resumes 23:00)
+  blackout_hours: ["22:00-23:00"]
+
+  # Friday: Exness metals close at ~22:00 UTC (last M15 candle 21:45)
+  # Stop new entries 30 min before close
+  friday_close_early: true
+  friday_close_time_utc: "21:30"  # Stop new entries before Exness weekend close
+
+# News and events
+news_trading:
+  enabled: false  # Don't trade during news by default
+
+  # High-impact events to avoid
+  avoid_events:
+    - "NFP"  # Non-Farm Payrolls
+    - "FOMC"  # Federal Reserve announcements
+    - "CPI"  # Consumer Price Index
+    - "Unemployment Rate"
+    - "Interest Rate Decision"
+
+  buffer_before_minutes: 30  # Stop trading X minutes before event
+  buffer_after_minutes: 30  # Resume trading X minutes after event
+
+  # If news trading enabled, increase requirements
+  news_trading_requirements:
+    min_confluence_score: 0.80  # Much higher confluence required
+    reduce_position_size: true
+    size_multiplier: 0.5
+
+# NY Close Exit - force-evaluate positions before NY session close
+ny_close_exit:
+  enabled: true
+  ny_close_utc: "22:00"           # NY session close time
+  buffer_minutes: 30              # Evaluate 30 min before close (21:30 UTC)
+  min_profit_for_early_exit: 0.30 # 30% of TP distance = take early profit
+  min_hold_hours_for_profit_take: 2  # Position must be open 2+ hours
+  profit_decay_hours: 4           # If profitable 4+ hours but fading
+  profit_decay_threshold: 0.30    # Exit if profit dropped 30% from peak
+  near_breakeven_loss: 1.0        # $1 or less loss = exit at session close
+
+# Market hours check
+market_hours:
+  check_enabled: true
+  weekend_trading: false
+  holiday_trading: false
