@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+logs/*.log
+logs/stderr.log
+logs/stdout.log
+*.db

@@ -1,0 +1,193 @@
+"""
+MT5 Client — direct MetaTrader5 Python connection.
+Wraps all MT5 calls so the rest of the code stays clean.
+"""
+import MetaTrader5 as mt5
+import pandas as pd
+from datetime import datetime, timezone
+from loguru import logger
+
+
+# ── Connection ────────────────────────────────────────────────────────────────
+
+def connect(
+    terminal_path: str = "",
+    login: int = 0,
+    password: str = "",
+    server: str = "",
+) -> bool:
+    kwargs = {}
+    if terminal_path:
+        kwargs["path"] = terminal_path
+    if login:
+        kwargs["login"] = login
+    if password:
+        kwargs["password"] = password
+    if server:
+        kwargs["server"] = server
+
+    if not mt5.initialize(**kwargs):
+        logger.error(f"MT5 init failed: {mt5.last_error()}")
+        return False
+
+    info = mt5.account_info()
+    if info is None:
+        logger.error("MT5 account_info() returned None")
+        mt5.shutdown()
+        return False
+
+    logger.info(
+        f"MT5 connected | login={info.login} | {info.server} | "
+        f"${info.balance:.2f} balance | leverage=1:{info.leverage}"
+    )
+    if login and info.login != login:
+        logger.warning(f"Connected to account {info.login} but expected {login}")
+    return True
+
+
+def disconnect():
+    mt5.shutdown()
+    logger.info("MT5 disconnected")
+
+
+# ── Market data ───────────────────────────────────────────────────────────────
+
+def get_price(symbol: str) -> dict:
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        return {}
+    return {
+        "bid": tick.bid,
+        "ask": tick.ask,
+        "mid": round((tick.bid + tick.ask) / 2, 2),
+        "spread": round(tick.ask - tick.bid, 2),
+    }
+
+
+def get_candles(symbol: str, timeframe, count: int) -> pd.DataFrame:
+    """
+    timeframe: mt5.TIMEFRAME_H1, mt5.TIMEFRAME_M15, etc.
+    """
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
+    if rates is None or len(rates) == 0:
+        return pd.DataFrame()
+    df = pd.DataFrame(rates)
+    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    df = df.rename(columns={"tick_volume": "volume"})
+    return df[["time", "open", "high", "low", "close", "volume"]]
+
+
+# ── Account info ──────────────────────────────────────────────────────────────
+
+def get_account() -> dict:
+    info = mt5.account_info()
+    if info is None:
+        return {}
+    return {
+        "login":       info.login,
+        "balance":     info.balance,
+        "equity":      info.equity,
+        "margin_free": info.margin_free,
+        "profit":      info.profit,
+        "leverage":    info.leverage,
+    }
+
+
+# ── Positions ─────────────────────────────────────────────────────────────────
+
+def get_positions(symbol: str = None) -> list[dict]:
+    pos = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
+    if pos is None:
+        return []
+    result = []
+    for p in pos:
+        result.append({
+            "ticket":       p.ticket,
+            "symbol":       p.symbol,
+            "type":         "LONG" if p.type == mt5.ORDER_TYPE_BUY else "SHORT",
+            "volume":       p.volume,
+            "price_open":   p.price_open,
+            "price_current": p.price_current,
+            "sl":           p.sl,
+            "tp":           p.tp,
+            "profit":       p.profit,
+            "comment":      p.comment,
+            "time_open":    datetime.fromtimestamp(p.time, tz=timezone.utc),
+            "_raw":         p,
+        })
+    return result
+
+
+# ── Order execution ───────────────────────────────────────────────────────────
+
+def place_market_order(
+    symbol: str,
+    direction: str,
+    lot: float,
+    sl: float,
+    tp: float,
+    magic: int = 202602,
+    comment: str = "smart_trader",
+) -> dict:
+    order_type = mt5.ORDER_TYPE_BUY if direction == "LONG" else mt5.ORDER_TYPE_SELL
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        return {"success": False, "error": "No tick data"}
+
+    price = tick.ask if direction == "LONG" else tick.bid
+
+    request = {
+        "action":      mt5.TRADE_ACTION_DEAL,
+        "symbol":      symbol,
+        "volume":      lot,
+        "type":        order_type,
+        "price":       price,
+        "sl":          round(sl, 2),
+        "tp":          round(tp, 2),
+        "deviation":   30,
+        "magic":       magic,
+        "comment":     comment,
+        "type_time":   mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    result = mt5.order_send(request)
+    if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+        err = result.comment if result else str(mt5.last_error())
+        return {"success": False, "error": err, "retcode": result.retcode if result else 0}
+
+    return {"success": True, "ticket": result.order, "price": result.price}
+
+
+def modify_sl_tp(ticket: int, sl: float, tp: float) -> bool:
+    pos = mt5.positions_get(ticket=ticket)
+    if not pos:
+        return False
+    p = pos[0]
+    result = mt5.order_send({
+        "action":   mt5.TRADE_ACTION_SLTP,
+        "symbol":   p.symbol,
+        "position": ticket,
+        "sl":       round(sl, 2),
+        "tp":       round(tp, 2),
+    })
+    return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE
+
+
+def close_partial(ticket: int, lot: float, symbol: str, is_long: bool) -> bool:
+    order_type = mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY
+    tick = mt5.symbol_info_tick(symbol)
+    price = tick.bid if is_long else tick.ask
+    result = mt5.order_send({
+        "action":      mt5.TRADE_ACTION_DEAL,
+        "symbol":      symbol,
+        "volume":      lot,
+        "type":        order_type,
+        "position":    ticket,
+        "price":       price,
+        "deviation":   30,
+        "magic":       202602,
+        "comment":     "partial_close",
+        "type_time":   mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    })
+    return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE

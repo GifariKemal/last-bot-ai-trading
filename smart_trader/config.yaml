@@ -1,0 +1,49 @@
+mt5:
+  symbol: XAUUSD
+  magic: 202602
+  terminal_path: "C:\\Program Files\\MetaTrader 5 IC Markets Global\\terminal64.exe"
+
+account:
+  login: 52725397
+  password: "WlNE&S3ck65acj"
+  server: ICMarketsSC-Demo
+
+trading:
+  zone_proximity_pts: 5.0   # max pts from zone boundary to consider entry
+  min_confidence: 0.70       # min Claude confidence to execute
+  max_positions: 1           # $100 balance — margin ~$51/trade, only 1 position
+  max_per_direction: 1
+  risk_percent: 1.0          # % of balance per trade
+  min_lot: 0.01
+  sl_atr_mult: 3.0
+  tp_atr_mult: 5.0
+  max_drawdown_pct: 5.0      # $100 balance — 5% = $5 max DD before halt
+  free_margin_pct: 20.0      # min free margin % of balance (block if margin nearly exhausted)
+
+scanner:
+  interval_sec: 30
+  spike_windows_utc:         # avoid entry during these windows
+    - [7, 45, 8, 0]          # London spike
+    - [12, 45, 13, 0]        # NY spike
+
+claude:
+  model: claude-opus-4-6
+  timeout_sec: 120
+  cmd: "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\claude.cmd"
+
+indicators:
+  rsi_period: 14
+  atr_period: 14
+  m15_lookback: 10
+
+telegram:
+  enabled: true
+  token: "8215295219:AAGwcevN5QKqYIgVnOogB9P1Lo-x6HCoatM"
+  chat_id: "-1003549733840"
+  scan_report_interval_min: 30   # heartbeat scan report setiap 30 menit
+
+paths:
+  zone_cache_db: "C:\\Users\\Administrator\\Videos\\Last Bot AI Trading\\claude_trader\\data\\market_cache.db"
+  log_dir: "logs"
+  log_file: "logs/smart_trader.log"
+  trades_csv: "logs/trades.csv"
