@@ -874,7 +874,16 @@ class TradingBot:
                 entry_price = position.get("open_price", position.get("price_open", 0))
                 current_sl = position.get("sl", 0)
                 direction = position.get("type", "BUY")  # Already "BUY"/"SELL" string
-                sl_distance = abs(entry_price - current_sl) if current_sl > 0 else atr * 3.0
+
+                # Bug #47 fix: use ORIGINAL SL distance for RR calculation.
+                # After BE/trailing modify current_sl, abs(entry - current_sl) shrinks
+                # to ~2 pips, making rr_ratio 10x inflated → tightest trail factor (0.35)
+                # immediately. Use entry_sl from tracker for stable RR throughout trade.
+                tracked_entry_sl = (self.position_tracker.get_position(ticket) or {}).get("entry_sl", 0)
+                if tracked_entry_sl > 0:
+                    sl_distance = abs(entry_price - tracked_entry_sl)
+                else:
+                    sl_distance = abs(entry_price - current_sl) if current_sl > 0 else atr * 3.0
 
                 # Calculate unrealized profit distance
                 if direction == "BUY":
@@ -1034,12 +1043,17 @@ class TradingBot:
                     self.position_tracker.update_position(ticket, {"peak_profit_price": peak_price})
 
                     # Progressive trail factor based on current RR
-                    if rr_ratio < 0.9:
-                        trail_factor = 0.65
-                    elif rr_ratio < 1.5:
-                        trail_factor = 0.50
+                    # XAUUSD routinely pulls back 30-40% of a move. f=0.35 at 1.5R
+                    # was too tight — stopped out this trade at +1.36R when TP was 2.44R.
+                    # Widened: only tighten to 0.35 above 3R (deep in TP territory).
+                    if rr_ratio < 1.0:
+                        trail_factor = 0.65  # loose: give room near BE
+                    elif rr_ratio < 2.0:
+                        trail_factor = 0.55  # moderate: building profit
+                    elif rr_ratio < 3.0:
+                        trail_factor = 0.45  # tighter: approaching TP
                     else:
-                        trail_factor = 0.35
+                        trail_factor = 0.35  # tightest: protect windfall (above 3R)
                     trail_distance = peak_profit_dist * trail_factor
 
                     # Min increment guard: avoid spamming MT5 for sub-pip moves
