@@ -47,12 +47,11 @@ def test_settings_use_adaptive_scorer():
 
 
 def test_settings_max_open_positions():
-    """max_open_positions must be >= 3 (was raised from 2 in Bug #38 fix)."""
+    """max_open_positions must be >= 1 (Exness $100: margin ~$51/trade at 1:100)."""
     cfg = load_yaml("settings.yaml")
     max_pos = cfg.get("trading", {}).get("max_open_positions", 0)
-    assert max_pos >= 3, (
-        f"Bug #38: max_open_positions={max_pos} should be >=3. "
-        "Was reduced to 2 causing fewer entries than dynamic max_pos=3."
+    assert max_pos >= 1, (
+        f"max_open_positions={max_pos} should be >=1."
     )
 
 

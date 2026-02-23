@@ -53,7 +53,7 @@ account_protection:
   max_consecutive_losses: 3  # Pause after this many consecutive losses
   pause_duration_minutes: 60  # Pause duration after max consecutive losses
 
-  max_drawdown_percent: 15.0  # Emergency stop if drawdown exceeds this
+  max_drawdown_percent: 30.0  # XAUUSD $100 account: single trade risk ~21%, 15% was too tight
   daily_profit_target: 3.0  # Optional: Stop after reaching daily profit (%)
 
 correlation:

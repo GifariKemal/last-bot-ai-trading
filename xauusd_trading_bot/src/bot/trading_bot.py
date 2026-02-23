@@ -462,30 +462,28 @@ class TradingBot:
                             f"SL COOLDOWN: {dir_key} blocked for {self._sl_cooldown_candles} candles"
                         )
 
-                # 4. Check risk limits
+                # 4. Check risk limits (only blocks NEW entries, not exit management)
                 risk_check = self.drawdown_monitor.check_trading_allowed(account_info)
-                if not risk_check.get("allowed"):
-                    self.logger.warning(f"Risk limits exceeded: {risk_check['reason']}")
-                    time.sleep(self.loop_interval)
-                    continue
+                trading_paused = not risk_check.get("allowed")
+                if trading_paused:
+                    self.logger.warning(f"Risk limits exceeded: {risk_check['reason']} (exit management continues)")
 
                 # 4.5 Emergency safety check (equity drop, margin level, large drawdown)
+                emergency_active = False
                 if self.emergency_handler.is_emergency_active():
                     self.logger.warning("Bot in EMERGENCY state — trading halted. Manual restart required.")
-                    time.sleep(10)
-                    continue
+                    emergency_active = True
+                else:
+                    emg = self.emergency_handler.check_emergency_conditions(
+                        account_info or {}, current_positions or []
+                    )
+                    if emg.get("emergency_needed"):
+                        trigger_msg = emg["triggers"][0]["message"] if emg.get("triggers") else "Unknown"
+                        self.logger.critical(f"EMERGENCY CONDITIONS MET: {trigger_msg}")
+                        self.emergency_handler.emergency_stop(reason=trigger_msg)
+                        emergency_active = True
 
-                emg = self.emergency_handler.check_emergency_conditions(
-                    account_info or {}, current_positions or []
-                )
-                if emg.get("emergency_needed"):
-                    trigger_msg = emg["triggers"][0]["message"] if emg.get("triggers") else "Unknown"
-                    self.logger.critical(f"EMERGENCY CONDITIONS MET: {trigger_msg}")
-                    self.emergency_handler.emergency_stop(reason=trigger_msg)
-                    time.sleep(10)
-                    continue
-
-                # 5. Position management with cached data + fresh price (fast path)
+                # 5. Position management ALWAYS runs (BE, trailing, partial close protect profit)
                 if current_positions and self._last_market_data:
                     # Update cached market_data with fresh tick price
                     tick = self.mt5.get_tick(self.symbol)
@@ -499,6 +497,14 @@ class TradingBot:
 
                 # 6. Capture tick data (every 2 min)
                 self._capture_tick()
+
+                # Skip signal processing if paused or emergency
+                if emergency_active:
+                    time.sleep(10)
+                    continue
+                if trading_paused:
+                    time.sleep(self.loop_interval)
+                    continue
 
                 # ── Slow path (only on new M15 candle) ───────────────────
 
