@@ -89,15 +89,30 @@ def build_prompt(setup: dict) -> str:
     )
 
 
-def call_claude(prompt: str, claude_cmd: str, model: str, timeout_sec: int) -> Optional[dict]:
+def _empty_metrics() -> dict:
+    """Return empty metrics dict (used on failure paths)."""
+    return {
+        "latency_ms": 0, "prompt_chars": 0, "response_chars": 0,
+        "est_input_tokens": 0, "est_output_tokens": 0,
+    }
+
+
+def call_claude(
+    prompt: str, claude_cmd: str, model: str, timeout_sec: int,
+) -> tuple[Optional[dict], dict]:
     """
     Call `claude -p <prompt>` and parse JSON response.
     Uses direct stdin input (no temp file) and clean env (no CLAUDECODE).
-    Returns dict with keys: decision, confidence, reason, sl, tp
-    Returns None on failure.
+    Returns (parsed_dict, metrics) tuple.
+    parsed_dict: dict with keys decision/action, confidence, reason, sl, tp — or None on failure.
+    metrics: {"latency_ms", "prompt_chars", "response_chars", "est_input_tokens", "est_output_tokens"}
     """
     import os
     import time as _time
+
+    metrics = _empty_metrics()
+    metrics["prompt_chars"] = len(prompt)
+    metrics["est_input_tokens"] = len(prompt) // 4
 
     # Build clean env — remove Claude Code session markers to prevent
     # "cannot be launched inside another Claude Code session" error
@@ -113,6 +128,7 @@ def call_claude(prompt: str, claude_cmd: str, model: str, timeout_sec: int) -> O
 
     max_retries = 2
     result = None
+    t_start = _time.time()
 
     for attempt in range(max_retries):
         try:
@@ -141,13 +157,18 @@ def call_claude(prompt: str, claude_cmd: str, model: str, timeout_sec: int) -> O
             logger.debug(f"Claude empty response, retrying ({attempt+1}/{max_retries})...")
             _time.sleep(3)
 
+    metrics["latency_ms"] = round((_time.time() - t_start) * 1000)
+
     if result is None:
-        return None
+        return None, metrics
 
     stdout = result.stdout.strip()
     if not stdout:
         logger.warning(f"Claude returned empty output. stderr: {result.stderr[:200]}")
-        return None
+        return None, metrics
+
+    metrics["response_chars"] = len(stdout)
+    metrics["est_output_tokens"] = len(stdout) // 4
 
     logger.debug(f"Claude raw response ({len(stdout)}c): {stdout[:500]}")
 
@@ -155,22 +176,22 @@ def call_claude(prompt: str, claude_cmd: str, model: str, timeout_sec: int) -> O
     json_str = _extract_json(stdout)
     if not json_str:
         logger.warning(f"No JSON in Claude response: {stdout[:300]}")
-        return None
+        return None, metrics
 
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError as e:
         logger.warning(f"JSON parse error: {e} | raw: {json_str[:200]}")
-        return None
+        return None, metrics
 
     # If top-level has "decision" or "action" key, use directly
     if "decision" in parsed or "action" in parsed:
         try:
             _validate_response(parsed)
-            return parsed
+            return parsed, metrics
         except ValueError as e:
             logger.warning(f"Invalid response: {e}")
-            return None
+            return None, metrics
 
     # Otherwise Claude returned nested JSON (used MCP tools) — search for decision obj
     decision_obj = _find_decision_obj(parsed)
@@ -178,13 +199,13 @@ def call_claude(prompt: str, claude_cmd: str, model: str, timeout_sec: int) -> O
         logger.debug(f"Found decision in nested JSON: {decision_obj}")
         try:
             _validate_response(decision_obj)
-            return decision_obj
+            return decision_obj, metrics
         except ValueError as e:
             logger.warning(f"Invalid nested decision: {e}")
 
     # Last resort: try to extract from any text in the response
     logger.warning(f"No decision/action key found. JSON keys: {list(parsed.keys())[:8]}")
-    return None
+    return None, metrics
 
 
 def _find_decision_obj(d: dict) -> Optional[dict]:
@@ -292,10 +313,11 @@ def _validate_exit_response(r: dict) -> None:
         r["new_sl"] = float(r["new_sl"])
 
 
-def review_exit(pos_data: dict, cfg: dict) -> Optional[dict]:
+def review_exit(pos_data: dict, cfg: dict) -> tuple[Optional[dict], dict]:
     """
     Ask Claude to analyze an open position for optimal exit timing.
-    Returns dict with action: HOLD / TAKE_PROFIT / TIGHTEN
+    Returns (response_dict, metrics) tuple.
+    response_dict has action: HOLD / TAKE_PROFIT / TIGHTEN, or None on failure.
     """
     prompt = build_exit_prompt(pos_data)
     logger.debug(f"Exit review prompt ({len(prompt)}c):\n{prompt}")
@@ -304,33 +326,33 @@ def review_exit(pos_data: dict, cfg: dict) -> Optional[dict]:
     model       = cfg.get("model", "claude-opus-4-6")
     timeout_sec = cfg.get("timeout_sec", 60)
 
-    response = call_claude(prompt, claude_cmd, model, timeout_sec)
+    response, metrics = call_claude(prompt, claude_cmd, model, timeout_sec)
     if not response:
-        return None
+        return None, metrics
 
     # Re-parse since exit responses have different structure
     if "action" in response:
         try:
             _validate_exit_response(response)
-            return response
+            return response, metrics
         except ValueError as e:
             logger.warning(f"Invalid exit response: {e}")
-            return None
+            return None, metrics
 
     # Try extracting from nested
     if "decision" in response:
         # Map entry-style response to exit format
-        return {"action": "HOLD", "reason": response.get("reason", "")}
+        return {"action": "HOLD", "reason": response.get("reason", "")}, metrics
 
-    return None
+    return None, metrics
 
 
-def validate(setup: dict, cfg: dict) -> Optional[dict]:
+def validate(setup: dict, cfg: dict) -> tuple[Optional[dict], dict]:
     """
     High-level entry point.
     setup: pre-analyzed trade setup dict (see build_prompt fields)
     cfg:   claude section from config.yaml
-    Returns Claude's parsed response dict or None.
+    Returns (response_dict, metrics) tuple.
     """
     prompt = build_prompt(setup)
     logger.debug(f"Claude prompt ({len(prompt)}c):\n{prompt}")
@@ -339,10 +361,13 @@ def validate(setup: dict, cfg: dict) -> Optional[dict]:
     model       = cfg.get("model", "claude-opus-4-6")
     timeout_sec = cfg.get("timeout_sec", 60)
 
-    response = call_claude(prompt, claude_cmd, model, timeout_sec)
+    response, metrics = call_claude(prompt, claude_cmd, model, timeout_sec)
     if response:
+        latency_s = metrics["latency_ms"] / 1000
+        est_tokens = metrics["est_input_tokens"] + metrics["est_output_tokens"]
         logger.info(
             f"Claude decision: {response['decision']} "
-            f"(conf={response['confidence']:.2f}) — {response['reason']}"
+            f"(conf={response['confidence']:.2f}) — {response['reason']} "
+            f"| {latency_s:.1f}s | ~{est_tokens} tokens"
         )
-    return response
+    return response, metrics

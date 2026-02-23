@@ -456,19 +456,22 @@ def review_positions_with_claude(
             f"P/L={pnl_pts:+.1f}pt (${pnl_usd:+.2f}) | {stage} | {duration_min:.0f}min"
         )
 
-        response = validator.review_exit(pos_data, claude_cfg)
+        response, metrics = validator.review_exit(pos_data, claude_cfg)
         if response is None:
             logger.warning(f"  Exit review failed for ticket={ticket}")
             continue
 
         action = response["action"]
         reason = response.get("reason", "")
+        latency_s = metrics["latency_ms"] / 1000
+        est_tokens = metrics["est_input_tokens"] + metrics["est_output_tokens"]
 
         if action == "TAKE_PROFIT":
             # Only close if actually in profit
             if pnl_pts > 3:
                 logger.bind(kind="TRADE").info(
-                    f"CLAUDE TAKE PROFIT | ticket={ticket} | +{pnl_pts:.1f}pt — {reason}"
+                    f"CLAUDE TAKE PROFIT | ticket={ticket} | +{pnl_pts:.1f}pt — {reason} "
+                    f"| {latency_s:.1f}s | ~{est_tokens} tokens"
                 )
                 logger.bind(kind="JOURNAL").info(
                     f"EXIT | ticket={ticket} | {direction} | pnl_pts={pnl_pts:+.1f} | "
@@ -483,6 +486,8 @@ def review_positions_with_claude(
                         action="TAKE_PROFIT",
                         pnl_pts=pnl_pts, pnl_usd=pnl_usd,
                         claude_reason=reason,
+                        claude_latency_ms=metrics["latency_ms"],
+                        claude_tokens=est_tokens,
                     )
             else:
                 logger.info(f"  TAKE_PROFIT ignored — only {pnl_pts:+.1f}pt (need >3pt)")
@@ -495,7 +500,8 @@ def review_positions_with_claude(
                         (direction == "SHORT" and new_sl < sl)
                 if valid:
                     logger.bind(kind="TRADE").info(
-                        f"CLAUDE TIGHTEN | ticket={ticket} | SL {sl:.2f}→{new_sl:.2f} — {reason}"
+                        f"CLAUDE TIGHTEN | ticket={ticket} | SL {sl:.2f}→{new_sl:.2f} — {reason} "
+                        f"| {latency_s:.1f}s | ~{est_tokens} tokens"
                     )
                     logger.bind(kind="JOURNAL").info(
                         f"MILESTONE | ticket={ticket} | {direction} | CLAUDE_TIGHTEN | "
@@ -511,9 +517,24 @@ def review_positions_with_claude(
                             claude_reason=reason,
                             new_sl=round(new_sl, 2),
                             old_sl=sl,
+                            claude_latency_ms=metrics["latency_ms"],
+                            claude_tokens=est_tokens,
                         )
                 else:
                     logger.debug(f"  Tighten rejected — new SL {new_sl:.2f} not tighter than {sl:.2f}")
 
         else:  # HOLD
-            logger.info(f"  HOLD ticket={ticket} — {reason}")
+            logger.info(
+                f"  HOLD ticket={ticket} — {reason} "
+                f"| {latency_s:.1f}s | ~{est_tokens} tokens"
+            )
+            _notif = tg.get()
+            if _notif:
+                _notif.send_claude_exit_review(
+                    ticket=ticket, direction=direction,
+                    action="HOLD",
+                    pnl_pts=pnl_pts, pnl_usd=pnl_usd,
+                    claude_reason=reason,
+                    claude_latency_ms=metrics["latency_ms"],
+                    claude_tokens=est_tokens,
+                )

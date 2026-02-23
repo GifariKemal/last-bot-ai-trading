@@ -292,6 +292,8 @@ class SmartTraderNotifier:
         ema_trend: str,
         rsi: float,
         atr: float,
+        claude_latency_ms: float = 0,
+        claude_tokens: int = 0,
     ) -> bool:
         try:
             dir_em  = _dir_emoji(direction)
@@ -301,6 +303,8 @@ class SmartTraderNotifier:
             tp_dist = abs(tp - price)
             rr      = tp_dist / sl_dist if sl_dist > 0 else 0
             signals_str = " + ".join(signals) if signals else "—"
+            review_str = f"› Review: {claude_latency_ms / 1000:.1f}s | ~{claude_tokens} tokens" \
+                         if claude_latency_ms > 0 else ""
 
             L = [
                 f"{dir_em} <b>ENTRY — {direction}</b> @ {price:.2f}",
@@ -316,6 +320,10 @@ class SmartTraderNotifier:
                 f"› Sinyal ({signal_count}): {signals_str}",
                 f"› Zone: {zone_type} ({zone_dist:.1f}pt away)",
                 f'› Reason: "<i>{claude_reason}</i>"',
+            ]
+            if review_str:
+                L.append(review_str)
+            L += [
                 "",
                 "[ KONTEKS ]",
                 f"› Session: {session} {flag} | EMA: {ema_trend} {ema_em}",
@@ -479,14 +487,26 @@ class SmartTraderNotifier:
         claude_reason: str,
         new_sl: float = 0,
         old_sl: float = 0,
+        claude_latency_ms: float = 0,
+        claude_tokens: int = 0,
     ) -> bool:
         """
         Kirim hasil exit review Claude: HOLD / TAKE_PROFIT / TIGHTEN.
-        Hanya kirim jika action != HOLD (supaya tidak spam).
+        ALL actions notified (including HOLD — compact format).
         """
         try:
+            metrics_str = ""
+            if claude_latency_ms > 0:
+                metrics_str = f" | {claude_latency_ms / 1000:.1f}s | ~{claude_tokens}tok"
+
             if action == "HOLD":
-                return False  # jangan spam untuk HOLD
+                # Compact 1-2 line format to avoid spam
+                dir_em = _dir_emoji(direction)
+                L = [
+                    f"🧠 HOLD | {dir_em} {direction} #{ticket} | "
+                    f"P/L: {pnl_pts:+.1f}pt | {claude_reason}{metrics_str}",
+                ]
+                return self._send("\n".join(L))
 
             if action == "TAKE_PROFIT":
                 icon  = "🧠💰 <b>CLAUDE TAKE PROFIT</b>"
@@ -501,6 +521,9 @@ class SmartTraderNotifier:
                     f"› SL: {old_sl:.2f} → {new_sl:.2f}",
                     f'› Reason: "<i>{claude_reason}</i>"',
                 ]
+
+            if metrics_str:
+                lines.append(f"› Review:{metrics_str}")
 
             L = [icon] + lines + ["", f"⏰ {_ts_short()}"]
             return self._send("\n".join(L))

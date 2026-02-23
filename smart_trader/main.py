@@ -480,7 +480,7 @@ def run_scan_cycle(cfg: dict) -> None:
 
         # ── Call Claude ───────────────────────────────────────────────────────
         _attempted_zones.add(zkey)
-        response = validator.validate(setup, c_cfg)
+        response, claude_metrics = validator.validate(setup, c_cfg)
 
         if response is None:
             logger.warning("Claude validation failed — skipping")
@@ -489,10 +489,13 @@ def run_scan_cycle(cfg: dict) -> None:
         decision   = response["decision"]
         confidence = response["confidence"]
         reason     = response["reason"]
+        _cl_lat_s  = claude_metrics["latency_ms"] / 1000
+        _cl_tokens = claude_metrics["est_input_tokens"] + claude_metrics["est_output_tokens"]
 
         if decision == "NO_TRADE":
             logger.info(
-                f"  Claude >> NO_TRADE (conf={confidence:.2f}) | {reason}"
+                f"  Claude >> NO_TRADE (conf={confidence:.2f}) | {reason} "
+                f"| {_cl_lat_s:.1f}s | ~{_cl_tokens} tokens"
             )
             logger.bind(kind="MARKET").debug(
                 f"  CLAUDE NO_TRADE | conf={confidence:.2f} | {reason}"
@@ -501,7 +504,8 @@ def run_scan_cycle(cfg: dict) -> None:
 
         if confidence < min_conf:
             logger.info(
-                f"  Claude >> {decision} REJECTED | conf={confidence:.2f} < min {min_conf} | {reason}"
+                f"  Claude >> {decision} REJECTED | conf={confidence:.2f} < min {min_conf} | {reason} "
+                f"| {_cl_lat_s:.1f}s | ~{_cl_tokens} tokens"
             )
             logger.bind(kind="MARKET").debug(
                 f"  CLAUDE REJECTED | conf={confidence:.2f} < min={min_conf} | {reason}"
@@ -509,7 +513,8 @@ def run_scan_cycle(cfg: dict) -> None:
             continue
 
         logger.info(
-            f"  Claude >> {decision} APPROVED | conf={confidence:.2f} | {reason}"
+            f"  Claude >> {decision} APPROVED | conf={confidence:.2f} | {reason} "
+            f"| {_cl_lat_s:.1f}s | ~{_cl_tokens} tokens"
         )
         logger.bind(kind="MARKET").debug(
             f"  CLAUDE APPROVED | {decision} | conf={confidence:.2f} | {reason}"
@@ -569,6 +574,8 @@ def run_scan_cycle(cfg: dict) -> None:
                     ema_trend=ema_trend,
                     rsi=rsi_val,
                     atr=atr_val,
+                    claude_latency_ms=claude_metrics["latency_ms"],
+                    claude_tokens=_cl_tokens,
                 )
                 global _session_trades
                 _session_trades += 1
