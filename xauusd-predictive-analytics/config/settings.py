@@ -35,7 +35,7 @@ class TradingConfig:
 
     symbol: str = "XAUUSD"
     timeframe: str = "M15"    # must be a key in DataFetcher.TIMEFRAME_MAP
-    candles: int = 50_000     # target bars; fetcher batches automatically
+    candles: int = 3_000      # target bars; fetcher batches automatically
     batch_size: int = 10_000  # bars per MT5 request (broker safe-limit)
 
 
@@ -50,10 +50,20 @@ class ModelConfig:
 
 
 @dataclass
+class KimiConfig:
+    """Kimi K2 API settings (OpenAI-compatible)."""
+
+    api_key:  str = field(default_factory=lambda: os.getenv("KIMI_API_KEY",  ""))
+    base_url: str = field(default_factory=lambda: os.getenv("KIMI_BASE_URL", "https://ai.sumopod.com/v1"))
+    model:    str = field(default_factory=lambda: os.getenv("KIMI_MODEL",    "kimi-k2-250905"))
+
+
+@dataclass
 class AppConfig:
     """Root config that aggregates all sub-configs."""
 
     mt5: MT5Config = field(default_factory=MT5Config)
     trading: TradingConfig = field(default_factory=TradingConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
+    kimi: KimiConfig = field(default_factory=KimiConfig)
     base_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent)

@@ -84,6 +84,30 @@ def find_nearby_zones(
     return sorted(nearby, key=lambda x: x["distance_pts"])
 
 
+def nearest_zone(price: float, zones: list[dict]) -> Optional[dict]:
+    """Return the single closest zone to price (no proximity filter)."""
+    best = None
+    best_dist = float("inf")
+    for z in zones:
+        low = z.get("low")
+        high = z.get("high")
+        level = z.get("level")
+
+        if low is not None and high is not None:
+            dist = 0 if low <= price <= high else min(
+                abs(price - low), abs(price - high)
+            )
+        elif level is not None:
+            dist = abs(price - level)
+        else:
+            continue
+
+        if dist < best_dist:
+            best_dist = dist
+            best = {**z, "distance_pts": round(dist, 2)}
+    return best
+
+
 def direction_for_zone(zone: dict) -> Optional[str]:
     """Return LONG, SHORT, or None based on zone type."""
     z_type = zone.get("type", "")

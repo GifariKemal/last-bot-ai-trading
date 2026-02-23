@@ -32,6 +32,37 @@ Algorithmic trading bot for XAUUSD (Gold) on MetaTrader 5 using Smart Money Conc
 
 ---
 
+## 🧠 Trading Philosophy — Wisdom of Legendary Traders
+
+This bot embodies the combined wisdom of **Soros, Paul Tudor Jones, Druckenmiller, Jim Simons, Bruce Kovner, Richard Dennis, Bill Lipschutz, Takashi Kotegawa, and Ken Griffin**. Every decision must align with these principles:
+
+### Risk First (Kovner, PTJ, Kotegawa)
+- **1% max risk per trade** — survival is non-negotiable; protect capital above all
+- **Predetermined stop before entry** — no trade exists without a defined exit
+- **Never average into losers** — adding to a losing position is how accounts die
+- **Reduce size on losing streaks** — when wrong consecutively, get smaller not bigger
+- **Daily/weekly drawdown circuit breaker** — hard stop when cumulative loss hits threshold
+
+### Entry Quality Over Quantity (Lipschutz, Kotegawa, Soros)
+- **Skip marginal setups — sit on hands 50% of the time** — patience IS the edge
+- **Enter after liquidity sweeps** — smart money hunts stops before moving; wait for the sweep
+- **Session-aware** — London/NY overlap is where volume lives; respect session weights
+
+### Asymmetric R:R (PTJ, Lipschutz, Druckenmiller)
+- **Minimum 3:1 R:R, target 5:1** — one winner must pay for multiple losers
+- **Trail winners with ATR stops** — let profits run; never cut winners short
+- **Variable conviction sizing** — when confluence is exceptional, lean in harder (future feature)
+
+### Systematic Discipline (Simons, Dennis, Griffin)
+- **No manual override — trust the algorithm** — emotions destroy edge; the system decides
+- **Continuous data-driven improvement** — backtest, measure, iterate; opinions don't matter, data does
+- **ATR-normalize all parameters** — volatility changes; absolute values become stale
+- **Regime-adaptive parameters** — trending, ranging, volatile markets need different rules
+
+> _"The secret to being successful from a trading perspective is to have an indefatigable and undying thirst for information and knowledge."_ — **PTJ**
+
+---
+
 ## ▶️ How to Run
 
 ```bash

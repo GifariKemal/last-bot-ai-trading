@@ -26,6 +26,7 @@ from ..analysis import (
     RegimeDetector,
     TradeAnalyzer,
 )
+from ..core.constants import MarketRegime
 from ..strategy.smc_strategy import SMCStrategy
 from ..risk_management import (
     SLTPCalculator,
@@ -1288,6 +1289,8 @@ class TradingBot:
         """Process new trading signals."""
         try:
             # Generate signal (matches backtest pipeline)
+            regime_result = market_data.get("regime_result", {})
+            current_regime = regime_result.get("regime", MarketRegime.RANGE_WIDE)
             decision = self.strategy.analyze_and_signal(
                 market_data["current_price"],
                 market_data["smc_analysis"],
@@ -1297,7 +1300,8 @@ class TradingBot:
                 market_data["confluence_scores"],
                 current_positions,
                 account_info,
-                market_data["market_data"]
+                market_data["market_data"],
+                regime=current_regime,
             )
 
             self.health_monitor.record_signal(decision.get("has_entry", False))
@@ -1307,10 +1311,15 @@ class TradingBot:
             if decision.get("has_entry"):
                 self.logger.info(f"SIGNAL FOUND: {summary}")
             else:
-                self.logger.debug(f"Signal check: {summary}")
+                self.logger.info(f"Signal check: {summary}")
 
-            # If no entry signal, return
+            # If no entry signal, send gate rejection to Telegram and return
             if not decision.get("has_entry"):
+                entry_sig = decision.get("entry_signal")
+                if entry_sig:
+                    gate_reasons = entry_sig.get("reasons", ["No conditions met"])
+                    gate_msg = gate_reasons[0] if gate_reasons else "Unknown"
+                    self.telegram.send_gate_rejection(gate_msg)
                 return
 
             entry_signal = decision["entry_signal"]
@@ -1361,7 +1370,6 @@ class TradingBot:
             # Calculate SL/TP
             vol_level = market_data["volatility_analysis"].get("level")
             if self.use_adaptive_scorer:
-                from ..core.constants import MarketRegime
                 regime_result = market_data.get("regime_result", {})
                 current_regime = regime_result.get("regime", MarketRegime.RANGE_WIDE)
                 session_info_sltp = self.session_manager.get_current_session()

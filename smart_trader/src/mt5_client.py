@@ -10,12 +10,23 @@ from loguru import logger
 
 # ── Connection ────────────────────────────────────────────────────────────────
 
+# Store connection params for auto-reconnect
+_conn_params: dict = {}
+
 def connect(
     terminal_path: str = "",
     login: int = 0,
     password: str = "",
     server: str = "",
 ) -> bool:
+    global _conn_params
+    _conn_params = {
+        "terminal_path": terminal_path,
+        "login": login,
+        "password": password,
+        "server": server,
+    }
+
     kwargs = {}
     if terminal_path:
         kwargs["path"] = terminal_path
@@ -45,6 +56,33 @@ def connect(
     return True
 
 
+def is_connected() -> bool:
+    """Check if MT5 connection is alive by calling account_info()."""
+    try:
+        info = mt5.account_info()
+        return info is not None
+    except Exception:
+        return False
+
+
+def reconnect() -> bool:
+    """Re-establish MT5 connection using stored params."""
+    if not _conn_params:
+        logger.error("No stored connection params — cannot reconnect")
+        return False
+    logger.warning("MT5 connection lost — attempting reconnect...")
+    try:
+        mt5.shutdown()
+    except Exception:
+        pass
+    ok = connect(**_conn_params)
+    if ok:
+        logger.info("MT5 reconnected successfully")
+    else:
+        logger.error("MT5 reconnect failed")
+    return ok
+
+
 def disconnect():
     mt5.shutdown()
     logger.info("MT5 disconnected")
@@ -57,13 +95,22 @@ def is_market_open(symbol: str, max_tick_age_min: float = 5.0) -> bool:
     Return True if market is open.
     Checks last tick age — if older than max_tick_age_min, market is closed.
     Spread alone is unreliable (IC Markets keeps spread non-zero on weekends).
+    Returns False with reconnect attempt if MT5 connection is lost.
     """
-    from datetime import datetime, timezone
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
-        return False
+        # Distinguish: connection lost vs no tick data
+        if not is_connected():
+            reconnect()
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is None:
+                return False
+        else:
+            return False
     tick_time = datetime.fromtimestamp(tick.time, tz=timezone.utc)
     age_min = (datetime.now(timezone.utc) - tick_time).total_seconds() / 60
+    # IC Markets server is UTC+2/+3: tick.time may be ahead of system UTC.
+    # Negative age = tick from "future" (server offset) → market is live.
     return age_min <= max_tick_age_min
 
 

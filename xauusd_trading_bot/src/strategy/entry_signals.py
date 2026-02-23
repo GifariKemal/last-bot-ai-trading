@@ -429,8 +429,10 @@ class EntrySignalGenerator:
 
         # Neither valid
         else:
+            bull_reason = bullish_signal.get("reasons", ["?"])[0]
+            bear_reason = bearish_signal.get("reasons", ["?"])[0]
             return self._no_signal(
-                reason="No valid signals (both bullish and bearish failed)"
+                reason=f"BULL: {bull_reason} | BEAR: {bear_reason}"
             )
 
     def _extract_smc_context(self, smc_signals: Dict) -> Dict:

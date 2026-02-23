@@ -9,7 +9,7 @@ import polars as pl
 from .entry_signals import EntrySignalGenerator
 from .exit_signals import ExitSignalGenerator
 from .signal_validator import SignalValidator
-from ..core.constants import SignalType, TrendDirection
+from ..core.constants import SignalType, TrendDirection, MarketRegime
 from ..bot_logger import get_logger
 
 
@@ -44,6 +44,7 @@ class SMCStrategy:
         current_positions: List[Dict],
         account_info: Dict,
         market_data: Dict,
+        regime: MarketRegime = MarketRegime.RANGE_WIDE,
     ) -> Dict:
         """
         Complete analysis and signal generation.
@@ -89,6 +90,7 @@ class SMCStrategy:
                 technical_indicators,
                 signal_time=market_data.get("time"),
                 open_position_count=len(current_positions),
+                regime=regime,
             )
 
             # 3. Validate entry signal

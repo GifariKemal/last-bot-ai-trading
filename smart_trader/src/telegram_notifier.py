@@ -494,6 +494,124 @@ class SmartTraderNotifier:
             logger.warning(f"Telegram zone_alert error: {e}")
             return False
 
+    # ── HOURLY ANALYSIS REPORT ──────────────────────────────────────────────
+
+    def send_hourly_report(
+        self,
+        price: float,
+        spread: float,
+        rsi: float,
+        atr: float,
+        ema_trend: str,
+        pd_zone: str,
+        h4_bias: str,
+        session: str,
+        zones_total: int,
+        nearby_zones: list[dict],
+        nearest_zone: dict | None,
+        proximity: float,
+        balance: float = 0,
+        equity: float = 0,
+        open_positions: list[dict] | None = None,
+        session_trades: int = 0,
+    ) -> bool:
+        """Compact hourly analysis report."""
+        try:
+            flag = _SESSION_ICON.get(session, "")
+
+            # Outlook based on H4 + EMA alignment
+            h4_em = {"BULLISH": "🟢", "BEARISH": "🔴", "RANGING": "🟡"}.get(h4_bias, "⚪")
+            ema_aligned = (
+                (h4_bias == "BULLISH" and ema_trend == "BULLISH") or
+                (h4_bias == "BEARISH" and ema_trend == "BEARISH")
+            )
+            align_tag = "aligned" if ema_aligned else "divergent"
+
+            # RSI tag
+            if rsi > 80:
+                rsi_tag = " OB"
+            elif rsi > 70:
+                rsi_tag = " OB"
+            elif rsi < 20:
+                rsi_tag = " OS"
+            elif rsi < 30:
+                rsi_tag = " OS"
+            else:
+                rsi_tag = ""
+
+            # P/D tag
+            pd_em = {"PREMIUM": "🔴", "DISCOUNT": "🟢", "EQUILIBRIUM": "⚪"}.get(pd_zone, "")
+
+            L = [
+                f"🤖 <b>Smart Trader — {session}</b> {flag}",
+                f"Outlook: {h4_bias} {h4_em} | EMA: {ema_trend} ({align_tag})",
+                "",
+                "[ MARKET ]",
+                f"💹 <b>{price:.2f}</b> | RSI {rsi:.0f}{rsi_tag} | ATR {atr:.1f}",
+                f"└ EMA: {ema_trend} | P/D: {pd_zone} {pd_em} | Spread: {spread:.1f}",
+            ]
+
+            # Zone section
+            L += ["", "[ ZONA SMC ]"]
+            L.append(f"› Total: {zones_total} | Nearby: {len(nearby_zones)} (&lt; {proximity}pt)")
+
+            if nearby_zones:
+                for z in nearby_zones[:3]:
+                    ztype = z.get("type", "?")
+                    zdist = z.get("distance_pts", 0)
+                    zem = "🟢" if "BULL" in ztype else "🔴"
+                    L.append(f"› {zem} {ztype} ({zdist:.1f}pt) — READY")
+            elif nearest_zone:
+                nz_type = nearest_zone.get("type", "?")
+                nz_dist = nearest_zone.get("distance_pts", 0)
+                nz_level = nearest_zone.get("high") or nearest_zone.get("level", 0)
+                nz_em = "🟢" if "BULL" in nz_type else "🔴"
+                arrow = "↓" if price > nz_level else "↑"
+                L.append(f"› Terdekat: {nz_em} {nz_type} @ {nz_level:.0f} ({nz_dist:.0f}pt {arrow})")
+            else:
+                L.append("› Tidak ada zona — menunggu struktur baru")
+
+            # Position section
+            L += ["", "[ POSISI ]"]
+            if open_positions:
+                for p in open_positions:
+                    dir_em = "🟢" if p["direction"] == "LONG" else "🔴"
+                    pnl = p.get("pnl", 0)
+                    pnl_sign = "+" if pnl >= 0 else ""
+                    L.append(
+                        f"› {dir_em} {p['direction']} #{p['ticket']} | "
+                        f"Entry {p['entry']:.2f} → {p['current']:.2f}"
+                    )
+                    L.append(f"  P/L: <b>${pnl_sign}{pnl:.2f}</b> | SL {p['sl']:.2f} | TP {p['tp']:.2f}")
+            else:
+                L.append("› Kosong — belum ada entry")
+
+            # Account
+            if balance > 0:
+                eq_delta = equity - balance
+                eq_em = "🟢" if eq_delta >= 0 else "🔴"
+                L += ["", "[ AKUN ]"]
+                L.append(f"💰 ${balance:,.2f} | Eq: {eq_em} ${equity:,.2f} ({eq_delta:+.2f})")
+                L.append(f"› Trades sesi: {session_trades}")
+
+            # Verdict / outlook
+            L += ["", "[ VERDICT ]"]
+            if nearby_zones:
+                L.append("✅ Zona dekat — menunggu sinyal + Claude")
+            elif nearest_zone and nearest_zone.get("distance_pts", 999) <= 50:
+                nd = nearest_zone.get("distance_pts", 0)
+                L.append(f"⏳ Zona {nd:.0f}pt away — menunggu harga mendekati")
+            elif zones_total > 0:
+                L.append("⏳ Zona jauh — ATH territory, menunggu retrace")
+            else:
+                L.append("⏸ No structure — menunggu H1 BOS/FVG/OB")
+
+            L += ["", f"⏰ {_ts()}"]
+            return self._send("\n".join(L))
+        except Exception as e:
+            logger.warning(f"Telegram hourly_report error: {e}")
+            return False
+
     # ── ERROR / WARNING ───────────────────────────────────────────────────────
 
     def send_error(self, title: str, detail: str = "") -> bool:

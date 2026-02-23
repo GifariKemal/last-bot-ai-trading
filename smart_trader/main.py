@@ -153,9 +153,18 @@ def run_scan_cycle(cfg: dict) -> None:
     # ── Manage existing positions ─────────────────────────────────────────────
     exe.manage_positions(symbol, cfg.get("mt5", {}))
 
+    # ── Common status line (reused across log messages) ────────────────────────
+    spread_val = price_info.get("spread", 0)
+    our_pos = [p for p in positions if p.get("_raw") and p["_raw"].magic == cfg.get("mt5", {}).get("magic", 202602)]
+    status_line = (
+        f"Price={price:.2f} | Spread={spread_val:.1f} | RSI={rsi_val:.0f} | "
+        f"ATR={atr_val:.1f} | EMA={ema_trend} | P/D={pd_zone} | "
+        f"H4={h4_bias} | {session['name']} | Pos={len(our_pos)}"
+    )
+
     # ── Session guard: no new entries during OFF_HOURS ─────────────────────────
     if session["name"] == "OFF_HOURS":
-        logger.info(f"[{wib_str}] OFF_HOURS — no new entries (price={price:.2f})")
+        logger.info(f"[{wib_str}] OFF_HOURS — {status_line}")
         return
 
     # ── Zone scan (dual source: detector + cache) ──────────────────────────────
@@ -164,20 +173,25 @@ def run_scan_cycle(cfg: dict) -> None:
     zones = zdet.merge_zones(detected_zones, cached_zones)
 
     if not zones:
-        logger.info(f"[{wib_str}] No zones detected (price={price:.2f})")
+        logger.info(f"[{wib_str}] {status_line} | Zones=0 — no structure detected")
         return
 
     nearby = scan.find_nearby_zones(price, zones, proximity)
     if not nearby:
+        nz = scan.nearest_zone(price, zones)
+        nz_info = (
+            f"nearest={nz['type']}@{nz.get('high') or nz.get('level', 0):.0f}"
+            f"({nz['distance_pts']:.0f}pt away)"
+        ) if nz else "no zones"
         logger.info(
-            f"[{wib_str}] Price={price:.2f} | ATR={atr_val:.1f} | "
-            f"Session={session['name']} | No zones within {proximity}pt"
+            f"[{wib_str}] {status_line} | "
+            f"Zones={len(zones)} | {nz_info} — waiting for zone proximity (<{proximity}pt)"
         )
         return
 
     logger.info(
-        f"[{wib_str}] Price={price:.2f} | RSI={rsi_val:.0f} | "
-        f"ATR={atr_val:.1f} | EMA={ema_trend} | {session['name']} | {len(nearby)} zone(s) nearby"
+        f"[{wib_str}] {status_line} | "
+        f"Zones={len(zones)} | {len(nearby)} nearby — evaluating setup"
     )
 
     # ── Market log — full scan snapshot ───────────────────────────────────────
@@ -331,9 +345,10 @@ def run_scan_cycle(cfg: dict) -> None:
         }
 
         logger.info(
-            f"  Validating {direction} | {zone['type']} | "
+            f"  Validating {direction} | {zone['type']} @ {zone.get('level') or zone.get('high', price):.0f} | "
             f"signals={signal_count} [{', '.join(signals)}] | "
-            f"dist={zone['distance_pts']:.1f}pt | RR={rr:.1f}"
+            f"dist={zone['distance_pts']:.1f}pt | SL={sl:.0f} | TP={tp:.0f} | RR={rr:.1f} | "
+            f"lot={setup['lot']:.2f}"
         )
 
         # ── Call Claude ───────────────────────────────────────────────────────
@@ -349,7 +364,9 @@ def run_scan_cycle(cfg: dict) -> None:
         reason     = response["reason"]
 
         if decision == "NO_TRADE":
-            logger.info(f"  NO_TRADE (conf={confidence:.2f}) — {reason}")
+            logger.info(
+                f"  Claude >> NO_TRADE (conf={confidence:.2f}) | {reason}"
+            )
             logger.bind(kind="MARKET").debug(
                 f"  CLAUDE NO_TRADE | conf={confidence:.2f} | {reason}"
             )
@@ -357,13 +374,16 @@ def run_scan_cycle(cfg: dict) -> None:
 
         if confidence < min_conf:
             logger.info(
-                f"  {decision} rejected — confidence {confidence:.2f} < {min_conf}"
+                f"  Claude >> {decision} REJECTED | conf={confidence:.2f} < min {min_conf} | {reason}"
             )
             logger.bind(kind="MARKET").debug(
                 f"  CLAUDE REJECTED | conf={confidence:.2f} < min={min_conf} | {reason}"
             )
             continue
 
+        logger.info(
+            f"  Claude >> {decision} APPROVED | conf={confidence:.2f} | {reason}"
+        )
         logger.bind(kind="MARKET").debug(
             f"  CLAUDE APPROVED | {decision} | conf={confidence:.2f} | {reason}"
         )
@@ -388,6 +408,11 @@ def run_scan_cycle(cfg: dict) -> None:
                 "signals":    ", ".join(signals),
                 "rr":         rr,
             })
+            logger.info(
+                f"  ORDER FILLED | ticket={ticket} | {decision} @ {result['price']:.2f} | "
+                f"SL={exec_sl:.2f} | TP={exec_tp:.2f} | lot={setup['lot']:.2f} | "
+                f"RR={rr:.1f} | conf={confidence:.2f} | {session['name']}"
+            )
             # ── Journal log — structured ENTRY record ─────────────────────
             logger.bind(kind="JOURNAL").info(
                 f"ENTRY | ticket={ticket} | {decision} | "
@@ -442,7 +467,7 @@ def _valid_tp(tp: float, price: float, direction: str) -> bool:
 
 
 def _send_heartbeat_report(cfg: dict) -> None:
-    """Fetch fresh snapshot and send 30-min heartbeat scan report via Telegram."""
+    """Fetch fresh snapshot and send hourly analysis report via Telegram."""
     _tg = tg.get()
     if not _tg:
         return
@@ -464,6 +489,7 @@ def _send_heartbeat_report(cfg: dict) -> None:
         account   = mt5c.get_account()
         positions = mt5c.get_positions(symbol)
 
+        df_h4  = mt5c.get_candles(symbol, mt5.TIMEFRAME_H4, 25)
         df_h1  = mt5c.get_candles(symbol, mt5.TIMEFRAME_H1, 55)
         now_utc = datetime.now(timezone.utc)
 
@@ -471,6 +497,7 @@ def _send_heartbeat_report(cfg: dict) -> None:
         rsi_val   = ind.rsi(df_h1, 14)            if not df_h1.empty else 50.0
         pd_zone   = ind.premium_discount(df_h1)   if not df_h1.empty else "EQUILIBRIUM"
         ema_trend = ind.h1_ema_trend(df_h1)       if not df_h1.empty else "NEUTRAL"
+        h4_bias   = ind.h4_bias(df_h4)            if not df_h4.empty else scan.get_last_h4_bias(db_path)
         session   = scan.current_session(now_utc)
 
         detected_zones = zdet.detect_all_zones(df_h1) if not df_h1.empty else []
@@ -478,21 +505,41 @@ def _send_heartbeat_report(cfg: dict) -> None:
         zones  = zdet.merge_zones(detected_zones, cached_zones)
         nearby = scan.find_nearby_zones(price, zones, proximity) if zones else []
 
+        # Find nearest zone regardless of proximity
+        nz = scan.nearest_zone(price, zones) if zones else None
+
         our_pos = [p for p in positions if p.get("_raw") and p["_raw"].magic == magic]
 
-        _tg.send_scan_report(
+        # Build position details for report
+        pos_details = []
+        for p in our_pos:
+            pos_details.append({
+                "ticket":    p["ticket"],
+                "direction": p["type"],
+                "entry":     p["price_open"],
+                "current":   p["price_current"],
+                "pnl":       p["profit"],
+                "sl":        p["sl"],
+                "tp":        p["tp"],
+            })
+
+        _tg.send_hourly_report(
             price=price,
             spread=price_info.get("spread", 0),
             rsi=rsi_val,
             atr=atr_val,
             ema_trend=ema_trend,
             pd_zone=pd_zone,
+            h4_bias=h4_bias,
             session=session["name"],
             zones_total=len(zones),
             nearby_zones=nearby,
+            nearest_zone=nz,
+            proximity=proximity,
             balance=account.get("balance", 0),
             equity=account.get("equity", 0),
-            open_positions=len(our_pos),
+            open_positions=pos_details,
+            session_trades=_session_trades,
         )
     except Exception as e:
         logger.warning(f"Heartbeat report error: {e}")
@@ -592,7 +639,14 @@ def main():
 
     logger.info("=" * 60)
     logger.info("Smart Trader starting")
-    logger.info(f"Symbol: {mt5_cfg.get('symbol')} | Account: {account_cfg.get('login')}")
+    logger.info(
+        f"Symbol: {mt5_cfg.get('symbol')} | Account: {account_cfg.get('login')} | "
+        f"Proximity: {_cfg.get('trading', {}).get('zone_proximity_pts', 5.0)}pt | "
+        f"Min Signals: 3 | Min Conf: {_cfg.get('trading', {}).get('min_confidence', 0.70)} | "
+        f"Max Pos: {_cfg.get('trading', {}).get('max_positions', 1)} | "
+        f"SL: {_cfg.get('trading', {}).get('sl_atr_mult', 3.0)}x ATR | "
+        f"TP: {_cfg.get('trading', {}).get('tp_atr_mult', 5.0)}x ATR"
+    )
     logger.info("=" * 60)
 
     # Connect to MT5
@@ -638,10 +692,27 @@ def main():
 
     exit_review_interval = 10  # every 10 cycles = ~5 min
 
+    _reconnect_failures = 0
     try:
         while _running:
             cycle += 1
             logger.debug(f"── Cycle {cycle} ──")
+
+            # ── MT5 health check — reconnect if connection lost ────────────
+            if not mt5c.is_connected():
+                if mt5c.reconnect():
+                    _reconnect_failures = 0
+                    logger.info("MT5 connection restored — resuming")
+                else:
+                    _reconnect_failures += 1
+                    backoff = min(30 * _reconnect_failures, 300)
+                    logger.warning(
+                        f"MT5 reconnect failed (attempt {_reconnect_failures}) — "
+                        f"retry in {backoff}s"
+                    )
+                    time.sleep(backoff)
+                    continue
+
             try:
                 run_scan_cycle(_cfg)
             except Exception as e:

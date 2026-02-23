@@ -372,6 +372,70 @@ class TelegramNotifier:
             self.logger.debug(traceback.format_exc())
             return False
 
+    def _shorten_gate_reason(self, raw: str) -> str:
+        """Shorten verbose gate reasons into compact labels."""
+        r = raw.strip()
+        if "structure support" in r:
+            return "\u2717 No BOS/CHoCH"
+        if "SMC signal" in r:
+            # "Only 0 SMC signal(s), need 1+ (position #1)" → "✗ SMC 0/1"
+            import re
+            m = re.search(r"(\d+) SMC.*need (\d+)", r)
+            if m:
+                return f"\u2717 SMC {m.group(1)}/{m.group(2)}"
+            return f"\u2717 SMC insufficient"
+        if "RSI extreme overbought" in r:
+            import re
+            m = re.search(r"([\d.]+)", r)
+            rsi_val = m.group(1) if m else "?"
+            return f"\u2717 RSI overbought ({rsi_val})"
+        if "RSI extreme oversold" in r:
+            import re
+            m = re.search(r"([\d.]+)", r)
+            rsi_val = m.group(1) if m else "?"
+            return f"\u2717 RSI oversold ({rsi_val})"
+        if "RSI bouncing" in r:
+            return "\u2717 RSI bounce block"
+        if "Market conditions" in r:
+            return "\u2717 Market unfavorable"
+        if "MTF not aligned" in r:
+            return "\u2717 MTF misaligned"
+        if "FVG or Order Block" in r:
+            return "\u2717 No FVG/OB"
+        if "confluence too low" in r:
+            return "\u2717 Confluence too low"
+        return f"\u2717 {r[:40]}"
+
+    def send_gate_rejection(self, reason: str) -> bool:
+        """Send compact gate rejection notification."""
+        try:
+            # Parse BULL/BEAR from "BULL: ... | BEAR: ..."
+            bull_raw, bear_raw = "", ""
+            for part in reason.split(" | "):
+                p = part.strip()
+                if p.startswith("BULL:"):
+                    bull_raw = p[5:].strip()
+                    if "checks failed:" in bull_raw:
+                        bull_raw = bull_raw.split("checks failed:")[-1].strip()
+                elif p.startswith("BEAR:"):
+                    bear_raw = p[5:].strip()
+
+            L = ["\U0001f512 <b>ENTRY GATES</b>", ""]
+
+            # BUY gates
+            if bull_raw:
+                bull_items = [self._shorten_gate_reason(r) for r in bull_raw.split(", ")]
+                L.append(f"\U0001f7e2 BUY \u2014 {' | '.join(bull_items)}")
+            # SELL gates
+            if bear_raw:
+                bear_items = [self._shorten_gate_reason(r) for r in bear_raw.split(", ")]
+                L.append(f"\U0001f534 SELL \u2014 {' | '.join(bear_items)}")
+
+            return self._send("\n".join(L))
+        except Exception as e:
+            self.logger.warning(f"Telegram gate rejection error: {e}")
+            return False
+
     # ─── Entry Notification ──────────────────────────────────────
 
     def send_entry(self, direction: str, price: float, sl: float, tp: float,
