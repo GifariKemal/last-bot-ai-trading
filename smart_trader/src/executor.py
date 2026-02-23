@@ -92,7 +92,7 @@ def place_trade(
 
 BE_TRIGGER_MULT       = 0.7   # BE at 0.7× SL distance (was 1.0×)
 LOCK_TRIGGER_MULT     = 1.5   # Partial close / profit lock at 1.5× SL
-TRAIL_KEEP_PCT        = 0.40  # Trail SL keeps 40% of profit as cushion (was 50%)
+TRAIL_KEEP_PCT        = 0.50  # Trail SL keeps 50% of profit as cushion (was 40%)
 TRAIL_ACTIVATE_PCT    = 0.40  # Trail activates when trail > 40% of SL dist (was 50%)
 STALE_TIGHTEN_MIN     = 90    # After 90 min with no progress, tighten SL
 STALE_PROGRESS_MULT   = 0.5   # "No progress" = profit < 50% of SL distance
@@ -113,7 +113,7 @@ def manage_positions(symbol: str, cfg: dict) -> None:
     Stage 0b: Time-based SL tighten (stale after 90min)
     Stage 1: Move SL to BE at 0.7×SL profit
     Stage 2: Partial close 50% (or profit-lock SL) at 1.5×SL profit
-    Stage 3: RR-based trailing stop on remainder (40% of peak profit)
+    Stage 3: RR-based trailing stop on remainder (50% of peak profit)
     """
     positions = mt5c.get_positions(symbol)
     if not positions:
@@ -310,7 +310,7 @@ def _sl_is_below_entry(direction: str, sl: float, entry: float) -> bool:
 
 
 def _rr_trail(pos: dict, price_info: dict, sl_dist: float, direction: str, symbol: str) -> None:
-    """RR-based trailing: SL = price - 40% of profit (tighter than before)."""
+    """RR-based trailing: SL = price - 50% of profit as cushion."""
     ticket  = pos["ticket"]
     entry   = pos["price_open"]
     cur_sl  = pos["sl"]

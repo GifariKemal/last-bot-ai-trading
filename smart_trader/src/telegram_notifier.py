@@ -379,6 +379,56 @@ class SmartTraderNotifier:
             logger.warning(f"Telegram exit error: {e}")
             return False
 
+    # ── POSITION CLOSED EXTERNALLY (SL/TP hit by broker) ────────────────────────
+
+    def send_position_closed_external(
+        self,
+        ticket: int,
+        direction: str,
+        entry_price: float,
+        last_sl: float,
+        last_tp: float,
+        close_price: float,
+        pnl_pts: float,
+        pnl_usd: float,
+        age_min: float,
+        close_type: str,
+    ) -> bool:
+        """Notify when a position disappears (closed by broker via SL/TP hit)."""
+        try:
+            emoji  = _pnl_emoji(pnl_usd)
+            label  = _pnl_label(pnl_usd)
+            dir_em = _dir_emoji(direction)
+            move_em = "\U0001f7e2" if pnl_pts > 0 else "\U0001f534"
+
+            if age_min < 60:
+                dur_str = f"{age_min:.0f}min"
+            else:
+                h = int(age_min // 60)
+                m = int(age_min % 60)
+                dur_str = f"{h}h{m:02d}m"
+
+            close_map = {
+                "sl_hit":    "\U0001f6d1 Trailing SL Hit",
+                "tp_hit":    "\U0001f48e TP Hit",
+                "unknown":   "\u2753 Closed Externally",
+            }
+            close_str = close_map.get(close_type, close_type)
+
+            L = [
+                f"{emoji} <b>{label} {pnl_usd:+.2f} USD</b> | {direction} #{ticket}",
+                f"\u203a {dir_em} {entry_price:.2f} \u2192 {move_em} {close_price:.2f} "
+                f"({pnl_pts:+.1f}pt)",
+                f"\u203a \u23f1 {dur_str} | {close_str}",
+                f"\u203a SL: {last_sl:.2f} | TP: {last_tp:.2f}",
+                "",
+                f"\u23f0 {_ts()}",
+            ]
+            return self._send("\n".join(L))
+        except Exception as e:
+            logger.warning(f"Telegram closed_external error: {e}")
+            return False
+
     # ── POSITION UPDATE (BE / Lock / Trail / Stale / Claude Tighten) ──────────
 
     def send_position_update(

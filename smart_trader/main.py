@@ -84,9 +84,132 @@ _last_scan_report: Optional[datetime] = None  # last heartbeat Telegram report
 _last_market_closed_log: Optional[datetime] = None  # throttle market-closed log
 _session_trades: int = 0  # entries placed this session
 
+# ── Position tracking (detect broker-side closes: SL/TP hit) ────────────────
+# {ticket: {direction, entry, sl, tp, time_open, volume}}
+_tracked_positions: dict[int, dict] = {}
+
 
 def _zone_key(zone: dict, direction: str) -> str:
     return f"{direction}_{zone.get('type')}_{zone.get('detected_at', '')}"
+
+
+def _track_and_detect_closes(symbol: str, magic: int) -> None:
+    """
+    Compare currently open positions against tracked set.
+    If a tracked position disappears, it was closed externally (SL/TP hit by broker).
+    Log to trade journal and send Telegram notification.
+    """
+    global _tracked_positions
+
+    positions = mt5c.get_positions(symbol)
+    our_pos = [p for p in positions if p.get("_raw") and p["_raw"].magic == magic]
+    current_tickets = {p["ticket"] for p in our_pos}
+
+    # ── Update tracking for new/existing positions ────────────────────────────
+    for p in our_pos:
+        t = p["ticket"]
+        _tracked_positions[t] = {
+            "direction":  p["type"],
+            "entry":      p["price_open"],
+            "sl":         p["sl"],
+            "tp":         p["tp"],
+            "time_open":  p.get("time_open"),
+            "volume":     p["volume"],
+        }
+
+    # ── Detect disappeared positions ──────────────────────────────────────────
+    disappeared = set(_tracked_positions.keys()) - current_tickets
+    now = datetime.now(timezone.utc)
+
+    for ticket in disappeared:
+        info = _tracked_positions.pop(ticket)
+        direction = info["direction"]
+        entry     = info["entry"]
+        last_sl   = info["sl"]
+        last_tp   = info["tp"]
+        volume    = info["volume"]
+
+        # Estimate close price and type based on last known SL/TP
+        # Check deal history from MT5 for exact close price
+        close_price, pnl_usd = mt5c.get_deal_close_info(ticket)
+
+        if close_price is None:
+            # Fallback: estimate from last SL (most likely scenario)
+            close_price = last_sl
+            pnl_usd = 0.0
+
+        pnl_pts = (close_price - entry) if direction == "LONG" else (entry - close_price)
+
+        # Determine close type
+        sl_dist = abs(close_price - last_sl)
+        tp_dist = abs(close_price - last_tp)
+        if tp_dist < 1.0:
+            close_type = "tp_hit"
+        elif sl_dist < 1.0:
+            close_type = "sl_hit"
+        else:
+            close_type = "unknown"
+
+        # Age
+        age_min = 0.0
+        if info["time_open"]:
+            age_min = (now - info["time_open"]).total_seconds() / 60
+
+        if age_min < 60:
+            dur_str = f"{age_min:.0f}min"
+        else:
+            h = int(age_min // 60)
+            m = int(age_min % 60)
+            dur_str = f"{h}h{m:02d}m"
+
+        # ── Log to trade journal ──────────────────────────────────────────────
+        logger.bind(kind="JOURNAL").info(
+            f"EXIT | ticket={ticket} | {direction} | pnl_pts={pnl_pts:+.1f} | "
+            f"pnl_usd=${pnl_usd:+.2f} | age={dur_str} | "
+            f"entry={entry:.2f} | close={close_price:.2f} | "
+            f"last_sl={last_sl:.2f} | last_tp={last_tp:.2f} | "
+            f"reason={close_type}"
+        )
+        logger.bind(kind="TRADE").info(
+            f"CLOSED BY BROKER | ticket={ticket} | {direction} | "
+            f"{close_price:.2f} | P/L={pnl_pts:+.1f}pt (${pnl_usd:+.2f}) | "
+            f"{close_type} | {dur_str}"
+        )
+        logger.info(
+            f"  Position closed externally | ticket={ticket} | {direction} | "
+            f"{entry:.2f} -> {close_price:.2f} | {pnl_pts:+.1f}pt (${pnl_usd:+.2f}) | "
+            f"{close_type} | {dur_str}"
+        )
+
+        # ── Telegram notification ─────────────────────────────────────────────
+        _notif = tg.get()
+        if _notif:
+            _notif.send_position_closed_external(
+                ticket=ticket,
+                direction=direction,
+                entry_price=entry,
+                last_sl=last_sl,
+                last_tp=last_tp,
+                close_price=close_price,
+                pnl_pts=pnl_pts,
+                pnl_usd=pnl_usd,
+                age_min=age_min,
+                close_type=close_type,
+            )
+
+        # ── CSV log ───────────────────────────────────────────────────────────
+        log_trade("EXIT", {
+            "direction":   direction,
+            "ticket":      ticket,
+            "entry_price": entry,
+            "close_price": close_price,
+            "pnl_pts":     round(pnl_pts, 1),
+            "pnl_usd":     round(pnl_usd, 2),
+            "close_type":  close_type,
+            "age_min":     round(age_min, 0),
+            "last_sl":     last_sl,
+            "last_tp":     last_tp,
+        })
 
 
 # ── One scan cycle ────────────────────────────────────────────────────────────
@@ -133,6 +256,10 @@ def run_scan_cycle(cfg: dict) -> None:
     price = price_info["mid"]
     account = mt5c.get_account()
     positions = mt5c.get_positions(symbol)
+
+    # ── Detect positions closed by broker (SL/TP hit) ──────────────────────
+    magic = cfg.get("mt5", {}).get("magic", 202602)
+    _track_and_detect_closes(symbol, magic)
 
     df_h4  = mt5c.get_candles(symbol, mt5.TIMEFRAME_H4,  25)
     df_h1  = mt5c.get_candles(symbol, mt5.TIMEFRAME_H1,  55)

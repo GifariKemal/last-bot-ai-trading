@@ -235,6 +235,33 @@ def modify_sl_tp(ticket: int, sl: float, tp: float) -> bool:
     return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE
 
 
+def get_deal_close_info(position_ticket: int) -> tuple:
+    """
+    Look up the closing deal for a position from MT5 deal history.
+    Returns (close_price, pnl_usd) or (None, None) if not found.
+    """
+    from datetime import timedelta
+    try:
+        # Search deals from last 24 hours
+        now = datetime.now(timezone.utc)
+        from_time = now - timedelta(days=1)
+        deals = mt5.history_deals_get(from_time, now, position=position_ticket)
+        if deals is None or len(deals) == 0:
+            return None, None
+
+        # Find the closing deal (entry=1 means OUT / close)
+        for d in reversed(deals):
+            if d.entry == 1:  # DEAL_ENTRY_OUT
+                return d.price, d.profit
+
+        # Fallback: last deal
+        last = deals[-1]
+        return last.price, last.profit
+    except Exception as e:
+        logger.debug(f"get_deal_close_info({position_ticket}) error: {e}")
+        return None, None
+
+
 def close_partial(ticket: int, lot: float, symbol: str, is_long: bool) -> bool:
     order_type = mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY
     tick = mt5.symbol_info_tick(symbol)
