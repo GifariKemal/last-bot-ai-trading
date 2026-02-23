@@ -38,20 +38,25 @@ def make_utc(weekday_offset: int, hour: int, minute: int = 0) -> datetime:
 
 @pytest.fixture
 def session_cfg():
-    """Minimal session configuration matching session_config.yaml."""
+    """Minimal session configuration matching session_config.yaml.
+
+    Static times are winter fallbacks; DST auto_detect overrides them.
+    Test base date (2026-02-23) is winter, so DST times == winter times.
+    """
     return {
+        "dst": {"auto_detect": True},
         "sessions": {
             "asian": {
                 "name": "Asian Session",
-                "start_utc": "01:00",
-                "end_utc": "08:00",
+                "start_utc": "00:00",
+                "end_utc": "09:00",
                 "weight": 0.75,
                 "min_confluence_adjustment": 0.05,
             },
             "london": {
                 "name": "London Session",
                 "start_utc": "08:00",
-                "end_utc": "16:00",
+                "end_utc": "17:00",
                 "weight": 1.16,
                 "min_confluence_adjustment": 0.0,
             },
@@ -65,7 +70,7 @@ def session_cfg():
             "overlap": {
                 "name": "London-NY Overlap",
                 "start_utc": "13:00",
-                "end_utc": "16:00",
+                "end_utc": "17:00",
                 "weight": 1.18,
                 "min_confluence_adjustment": -0.05,
             },
@@ -74,8 +79,8 @@ def session_cfg():
             "trading_days": [0, 1, 2, 3, 4],
             "avoid_weekends": True,
             "friday_close_early": True,
-            "friday_close_time_utc": "23:30",
-            "blackout_hours": ["00:00-01:00"],
+            "friday_close_time_utc": "21:30",
+            "blackout_hours": ["22:00-23:00"],
         },
         "preferences": {
             "preferred_sessions": ["overlap", "london", "new_york"],

@@ -147,31 +147,29 @@ def test_session_config_loads():
 
 
 def test_session_maintenance_is_correct():
-    """Maintenance window must be 00:00-01:00 UTC (verified from MT5 candle gaps)."""
+    """Maintenance window must be 22:00-23:00 UTC (Exness XAUUSDm verified from M15 gaps)."""
     cfg = load_yaml("session_config.yaml")
     blackout = cfg.get("restrictions", {}).get("blackout_hours", [])
-    assert "00:00-01:00" in blackout, (
-        f"Maintenance blackout must be '00:00-01:00' (verified from MT5 data). "
-        f"Got: {blackout}. Old wrong assumption was 21:00-22:00."
+    assert "22:00-23:00" in blackout, (
+        f"Maintenance blackout must be '22:00-23:00' (Exness verified). "
+        f"Got: {blackout}."
     )
 
 
 def test_session_friday_close_is_late():
-    """Friday close must be 23:30 UTC (not 21:00 old assumption)."""
+    """Friday close must be 21:30 UTC (Exness last candle 21:45, stop entries at 21:30)."""
     cfg = load_yaml("session_config.yaml")
     close_time = cfg.get("restrictions", {}).get("friday_close_time_utc", "")
-    assert close_time == "23:30", (
-        f"friday_close_time_utc='{close_time}' but must be '23:30'. "
-        "IC Markets last candle is 23:45 Fri, so close at 23:30 is correct."
+    assert close_time == "21:30", (
+        f"friday_close_time_utc='{close_time}' but must be '21:30'. "
+        "Exness XAUUSDm last candle is Fri 21:45, so close at 21:30 is correct."
     )
 
 
 def test_session_blackout_covers_maintenance_window():
-    """blackout_hours must cover 00:00-01:00 so Asian's nominal 00:00 start is blocked."""
+    """blackout_hours must cover 22:00-23:00 for Exness daily maintenance."""
     cfg = load_yaml("session_config.yaml")
     blackout = cfg.get("restrictions", {}).get("blackout_hours", [])
-    # The maintenance window 00:00-01:00 must be in blackout so that even if Asian
-    # session nominally starts at 00:00, the detector blocks trading until 01:00.
-    assert any("00:00" in b for b in blackout), (
-        f"blackout_hours must include 00:00-01:00 maintenance window. Got: {blackout}"
+    assert any("22:00" in b for b in blackout), (
+        f"blackout_hours must include 22:00-23:00 maintenance window. Got: {blackout}"
     )

@@ -4,9 +4,10 @@ Manages trading sessions and applies session-based adjustments.
 """
 
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, time
 import pytz
 from .session_detector import SessionDetector
+from .dst_utils import get_session_times_utc
 from ..bot_logger import get_logger
 
 
@@ -210,12 +211,27 @@ class SessionManager:
             "reason": "No early close needed",
         }
 
+    def get_ny_close_utc(self, dt: datetime = None) -> str:
+        """Return DST-aware NY close as 'HH:MM' string."""
+        ny_close = self.detector._ny_close_time
+        if ny_close is None:
+            times = get_session_times_utc(dt)
+            ny_close = times["new_york_end"]
+        return ny_close.strftime("%H:%M")
+
+    def get_pre_close_hour(self, dt: datetime = None) -> int:
+        """Return DST-aware pre-close profit lock hour (int)."""
+        pre_close = self.detector._pre_close_hour
+        if pre_close is None:
+            times = get_session_times_utc(dt)
+            pre_close = times["pre_close_hour"]
+        return pre_close
+
     def should_exit_ny_close(self, current_time: datetime = None) -> Dict:
         """
         Check if positions should be evaluated for NY Close exit.
 
-        At 30 min before NY Close (21:30 UTC), returns recommendation to
-        evaluate all positions for potential early exit.
+        Uses DST-aware NY close time from session detector.
 
         Args:
             current_time: Optional datetime (uses UTC now if not provided)
@@ -230,11 +246,13 @@ class SessionManager:
         if not ny_close_config.get("enabled", False):
             return {"should_evaluate": False, "reason": "NY close exit disabled"}
 
-        # Parse NY close time
-        ny_close_str = ny_close_config.get("ny_close_utc", "22:00")
-        ny_close_parts = ny_close_str.split(":")
-        ny_close_hour = int(ny_close_parts[0])
-        ny_close_minute = int(ny_close_parts[1])
+        # Use DST-aware NY close time
+        ny_close = self.detector._ny_close_time
+        if ny_close is None:
+            ny_close = time(22, 0)
+        ny_close_hour = ny_close.hour
+        ny_close_minute = ny_close.minute
+        ny_close_str = ny_close.strftime("%H:%M")
 
         buffer_minutes = ny_close_config.get("buffer_minutes", 30)
 

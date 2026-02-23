@@ -816,14 +816,16 @@ class TradingBot:
             return None
 
     def _is_approaching_daily_close(self) -> bool:
-        """Return True during 21:00–21:59 UTC (daily pre-maintenance window).
+        """Return True during pre-maintenance hour (DST-aware).
 
-        Exness XAUUSDm maintenance runs 22:00–23:00 UTC daily.
-        We lock profits at 21:00 UTC to protect gains before the close.
+        Exness XAUUSDm maintenance runs after NY close daily.
+        Winter: maintenance 22:00-23:00, pre-close hour = 21
+        Summer: maintenance 21:00-22:00, pre-close hour = 20
         """
         import pytz
         now_utc = datetime.now(pytz.UTC)
-        return now_utc.hour == 21
+        pre_close = self.session_manager.get_pre_close_hour(now_utc)
+        return now_utc.hour == pre_close
 
     def _get_dynamic_max_positions(self, volatility_level: str = "medium", account_info: Dict = None) -> int:
         """Calculate dynamic max positions based on volatility and drawdown."""

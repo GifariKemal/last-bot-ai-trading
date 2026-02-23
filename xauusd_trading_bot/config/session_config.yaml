@@ -1,34 +1,41 @@
 # Trading Session Configuration
+# NOTE: When dst.auto_detect is true (default), start/end times below are
+# WINTER FALLBACKS only. Actual times are computed dynamically from DST status.
+# See src/sessions/dst_utils.py for the DST engine.
+
+# DST auto-detection (uses pytz Europe/London + America/New_York)
+dst:
+  auto_detect: true
 
 sessions:
   asian:
     name: "Asian Session"
-    start_utc: "00:00"
-    end_utc: "08:00"
+    start_utc: "00:00"       # Japan has no DST — always 00:00
+    end_utc: "09:00"         # Winter fallback (was 08:00 — wrong)
     weight: 0.75  # V3 Optuna-optimized (was 0.7)
     min_confluence_adjustment: 0.05  # Require slightly higher confluence
     description: "Tokyo session - Lower volatility, still tradeable"
 
   london:
     name: "London Session"
-    start_utc: "08:00"
-    end_utc: "16:00"
+    start_utc: "08:00"       # Winter fallback (summer: 07:00)
+    end_utc: "17:00"         # Winter fallback (was 16:00 — wrong; summer: 16:00)
     weight: 1.16  # V3 Optuna-optimized (was 1.1)
     min_confluence_adjustment: 0.0
     description: "London session - Good volatility and liquidity"
 
   new_york:
     name: "New York Session"
-    start_utc: "13:00"
-    end_utc: "22:00"
+    start_utc: "13:00"       # Winter fallback (summer: 12:00)
+    end_utc: "22:00"         # Winter fallback (summer: 21:00)
     weight: 1.16  # V3 Optuna-optimized (was 1.1)
     min_confluence_adjustment: 0.0
     description: "New York session - High volatility and liquidity"
 
   overlap:
     name: "London-NY Overlap"
-    start_utc: "13:00"
-    end_utc: "16:00"
+    start_utc: "13:00"       # Winter fallback (summer: 12:00)
+    end_utc: "17:00"         # Winter fallback (was 16:00 — wrong; summer: 16:00)
     weight: 1.18  # V3 Optuna-optimized (was 1.25)
     min_confluence_adjustment: -0.05  # Can accept slightly lower confluence
     description: "Overlap session - Best liquidity and movement for XAUUSD"

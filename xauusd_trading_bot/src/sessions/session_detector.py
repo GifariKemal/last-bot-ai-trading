@@ -1,12 +1,14 @@
 """
 Session Detector
 Detects current trading session based on UTC time.
+DST-aware: session boundaries auto-adjust for London/NY daylight saving.
 """
 
 from typing import Dict, List, Optional
 from datetime import datetime, time
 import pytz
 from ..bot_logger import get_logger
+from .dst_utils import get_session_times_utc, get_dst_status, format_dst_summary
 
 
 class SessionDetector:
@@ -23,37 +25,106 @@ class SessionDetector:
         self.config = config
         self.sessions_config = config.get("sessions", {})
 
-        # Parse session times
-        self.sessions = {}
+        # Parse static session metadata (weights, adjustments) from config
+        self._session_meta = {}
         for session_key, session_data in self.sessions_config.items():
-            self.sessions[session_key] = {
+            self._session_meta[session_key] = {
                 "name": session_data.get("name"),
-                "start": self._parse_time(session_data.get("start_utc")),
-                "end": self._parse_time(session_data.get("end_utc")),
                 "weight": session_data.get("weight", 1.0),
                 "confluence_adjustment": session_data.get("min_confluence_adjustment", 0.0),
                 "description": session_data.get("description", ""),
             }
 
-        # Restrictions
+        # Restrictions (non-time fields)
         restrictions = config.get("restrictions", {})
         self.trading_days = restrictions.get("trading_days", [0, 1, 2, 3, 4])
         self.avoid_weekends = restrictions.get("avoid_weekends", True)
         self.friday_close_early = restrictions.get("friday_close_early", True)
-        self.friday_close_time = self._parse_time(
-            restrictions.get("friday_close_time_utc", "21:00")
-        )
 
-        # Parse blackout hours (e.g. ["21:00-22:00"] for daily maintenance)
+        # DST auto-detect (default True)
+        dst_config = config.get("dst", {})
+        self._dst_auto_detect = dst_config.get("auto_detect", True)
+
+        # Initialize DST-aware times
+        self._last_dst_status = None
+        self._ny_close_time = None
+        self._pre_close_hour = None
+        self.sessions = {}
         self.blackout_hours = []
-        for period_str in restrictions.get("blackout_hours", []):
-            try:
-                start_s, end_s = period_str.split("-", 1)
-                self.blackout_hours.append(
-                    (self._parse_time(start_s.strip()), self._parse_time(end_s.strip()))
+        self.friday_close_time = time(21, 30)  # default, overwritten immediately
+
+        self._refresh_dst_times(datetime.now(pytz.UTC))
+
+    def _refresh_dst_times(self, dt: datetime = None) -> None:
+        """Recompute session/maintenance/close times if DST status changed."""
+        if dt is None:
+            dt = datetime.now(pytz.UTC)
+
+        current_status = get_dst_status(dt)
+
+        # Skip if DST status hasn't changed
+        if current_status == self._last_dst_status:
+            return
+
+        old_status = self._last_dst_status
+        self._last_dst_status = current_status
+
+        if self._dst_auto_detect:
+            times = get_session_times_utc(dt)
+
+            # Map DST-computed times onto session keys, preserving config weights
+            session_time_map = {
+                "asian": (times["asian_start"], times["asian_end"]),
+                "london": (times["london_start"], times["london_end"]),
+                "new_york": (times["new_york_start"], times["new_york_end"]),
+                "overlap": (times["overlap_start"], times["overlap_end"]),
+            }
+
+            self.sessions = {}
+            for session_key, meta in self._session_meta.items():
+                start, end = session_time_map.get(
+                    session_key, (time(0, 0), time(0, 0))
                 )
-            except Exception:
-                pass
+                self.sessions[session_key] = {
+                    **meta,
+                    "start": start,
+                    "end": end,
+                }
+
+            self.blackout_hours = [(times["maintenance_start"], times["maintenance_end"])]
+            self.friday_close_time = times["friday_close_time"]
+            self._ny_close_time = times["new_york_end"]
+            self._pre_close_hour = times["pre_close_hour"]
+        else:
+            # Fallback: parse static times from config
+            for session_key, session_data in self.sessions_config.items():
+                self.sessions[session_key] = {
+                    **self._session_meta[session_key],
+                    "start": self._parse_time(session_data.get("start_utc")),
+                    "end": self._parse_time(session_data.get("end_utc")),
+                }
+            restrictions = self.config.get("restrictions", {})
+            self.friday_close_time = self._parse_time(
+                restrictions.get("friday_close_time_utc", "21:30")
+            )
+            self.blackout_hours = []
+            for period_str in restrictions.get("blackout_hours", []):
+                try:
+                    start_s, end_s = period_str.split("-", 1)
+                    self.blackout_hours.append(
+                        (self._parse_time(start_s.strip()), self._parse_time(end_s.strip()))
+                    )
+                except Exception:
+                    pass
+            self._ny_close_time = time(22, 0)
+            self._pre_close_hour = 21
+
+        # Log on init or DST transition
+        summary = format_dst_summary(dt)
+        if old_status is None:
+            self.logger.info(f"Session detector initialized | {summary}")
+        else:
+            self.logger.warning(f"DST transition detected! | {summary}")
 
     def _parse_time(self, time_str: str) -> time:
         """
@@ -107,6 +178,8 @@ class SessionDetector:
             # Assume UTC if no timezone
             current_time = pytz.UTC.localize(current_time)
 
+        self._refresh_dst_times(current_time)
+
         # No session during market-closed periods
         if self._is_closed_period(current_time):
             return None
@@ -159,6 +232,8 @@ class SessionDetector:
         elif current_time.tzinfo is None:
             current_time = pytz.UTC.localize(current_time)
 
+        self._refresh_dst_times(current_time)
+
         if self._is_closed_period(current_time):
             return []
 
@@ -204,6 +279,8 @@ class SessionDetector:
             current_time = datetime.now(pytz.UTC)
         elif current_time.tzinfo is None:
             current_time = pytz.UTC.localize(current_time)
+
+        self._refresh_dst_times(current_time)
 
         day_of_week = current_time.weekday()   # 0=Mon … 5=Sat, 6=Sun
         current_t = current_time.time()

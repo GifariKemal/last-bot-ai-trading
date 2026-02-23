@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import polars as pl
 
 from ..core.constants import SignalType, TrendDirection
+from ..sessions.dst_utils import get_session_times_utc
 from ..bot_logger import get_logger
 
 
@@ -402,11 +403,11 @@ class ExitSignalGenerator:
         now = datetime.now(timezone.utc)
         buffer_minutes = cfg.get("buffer_minutes", 30)
 
-        # Parse NY close time
-        ny_close_str = cfg.get("ny_close_utc", "22:00")
-        ny_close_parts = ny_close_str.split(":")
-        ny_close_hour = int(ny_close_parts[0])
-        ny_close_minute = int(ny_close_parts[1])
+        # DST-aware NY close time
+        times = get_session_times_utc(now)
+        ny_close = times["new_york_end"]
+        ny_close_hour = ny_close.hour
+        ny_close_minute = ny_close.minute
 
         # Calculate minutes until NY close
         current_minutes = now.hour * 60 + now.minute
