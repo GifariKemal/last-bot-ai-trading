@@ -81,8 +81,8 @@ exit_stages:
 micro_account:
   enabled: true
   max_balance_threshold: 500.0  # Accounts below this are "micro"
-  max_risk_dollars: 2.0         # Max risk per trade in dollars
-  max_risk_percent: 2.0         # Max risk as % of balance
+  max_risk_dollars: 25.0        # XAUUSD: 0.01 lot, SL=2.6×ATR(~8) = ~$21 risk (was $2 — blocked all trades)
+  max_risk_percent: 25.0        # 25% of $100 = $25 max risk per trade (gold is high-risk with $100)
   max_positions: 1              # Max simultaneous positions (margin limit)
   max_spread_pct_of_sl: 10.0   # Reject if spread > 10% of SL
   fixed_lot: 0.01

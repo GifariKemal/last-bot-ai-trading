@@ -48,7 +48,7 @@ def _base_signal(gen, direction="BUY", smc=None, rsi=55.0, open_positions=0, sco
         mtf_analysis=make_mtf(aligned=False),
         technical_indicators=make_tech(rsi=rsi),
         open_position_count=open_positions,
-        regime=MarketRegime.RANGE_WIDE,
+        regime=MarketRegime.WEAK_TREND_UP,  # trending: min_smc=1 (tests focus on RSI/confluence gates)
     )
 
 
