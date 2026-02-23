@@ -18,9 +18,11 @@ _SPIKE_WINDOWS = [
 _SESSIONS = [
     (12, 0, 16, 0,  "OVERLAP",   "HIGHEST"),
     (7,  0, 12, 0,  "LONDON",    "HIGH"),
-    (16, 0, 17, 0,  "NEW_YORK",  "HIGH"),
+    (16, 0, 20, 0,  "NEW_YORK",  "HIGH"),
+    (20, 0, 22, 0,  "LATE_NY",   "MEDIUM"),
+    (22, 0, 23, 0,  "OFF_HOURS", "MEDIUM"),   # Exness maintenance
+    (23, 0, 24, 0,  "ASIAN",     "LOW"),
     (0,  0, 7,  0,  "ASIAN",     "LOW"),
-    (17, 0, 24, 0,  "OFF_HOURS", "MEDIUM"),
 ]
 
 
