@@ -119,6 +119,13 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
 
     # ── Detect disappeared positions ──────────────────────────────────────────
     disappeared = set(_tracked_positions.keys()) - current_tickets
+    # Exclude tickets the bot itself closed (scratch/claude) to prevent false "CLOSED BY BROKER"
+    bot_closed = exe.get_bot_closed_tickets()
+    disappeared -= bot_closed
+    # Clean bot-closed tickets from tracking so they don't re-trigger next cycle
+    for t in bot_closed:
+        _tracked_positions.pop(t, None)
+    exe.clear_bot_closed_tickets()
     now = datetime.now(timezone.utc)
 
     for ticket in disappeared:

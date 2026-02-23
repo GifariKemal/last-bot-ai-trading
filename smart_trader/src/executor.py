@@ -97,13 +97,14 @@ TRAIL_ACTIVATE_PCT    = 0.40  # Trail activates when trail > 40% of SL dist (was
 STALE_TIGHTEN_MIN     = 90    # After 90 min with no progress, tighten SL
 STALE_PROGRESS_MULT   = 0.5   # "No progress" = profit < 50% of SL distance
 STALE_SL_REDUCE       = 0.5   # Reduce max loss to 50% of original SL
-SCRATCH_EXIT_MIN      = 60    # After 60 min flat, close at ~breakeven
-SCRATCH_FLAT_PTS      = 5.0   # "Flat" = less than 5pt movement either way
+SCRATCH_EXIT_MIN      = 180   # After 3 hours flat, close at ~breakeven
+SCRATCH_FLAT_PTS      = 3.0   # "Flat" = less than 3pt movement either way
 
 
 # ── Position management ───────────────────────────────────────────────────────
 
 _scratched_tickets: set[int] = set()  # prevent repeat scratch attempts
+_bot_closed_tickets: set[int] = set()  # tickets closed by bot (scratch/claude/etc)
 
 
 def manage_positions(symbol: str, cfg: dict) -> None:
@@ -347,12 +348,23 @@ def close_position(ticket: int, symbol: str, direction: str, volume: float) -> b
     is_long = direction == "LONG"
     ok = mt5c.close_partial(ticket, volume, symbol, is_long)
     if ok:
+        _bot_closed_tickets.add(ticket)
         logger.bind(kind="TRADE").info(
             f"CLOSED | ticket={ticket} | {direction} {volume} lot"
         )
     else:
         logger.error(f"Failed to close ticket={ticket}")
     return ok
+
+
+def get_bot_closed_tickets() -> set[int]:
+    """Return tickets that the bot closed (scratch, claude, etc)."""
+    return _bot_closed_tickets
+
+
+def clear_bot_closed_tickets() -> None:
+    """Clear the bot-closed tickets set after processing."""
+    _bot_closed_tickets.clear()
 
 
 # ── Claude Smart Exit Review ─────────────────────────────────────────────────
