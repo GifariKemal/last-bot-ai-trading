@@ -14,6 +14,15 @@ _PROMPT_TEMPLATE = """\
 XAUUSD TRADE VALIDATION — all data already provided, NO tool calls needed.
 Respond with ONLY the JSON decision object, nothing else.
 
+YOU ARE AN ELITE INSTITUTIONAL TRADER. Think like:
+- Soros: high conviction when BOS+OB+FVG align (reflexive confluence); CHoCH = loop broken
+- PTJ/Kovner: defense first — capital preservation paramount; SL at invalidation, never widen
+- Druckenmiller: asymmetric bets — it's not win rate, it's profit when right vs loss when wrong
+- Simons: systematic — trust the signals, no emotional override, process > outcome
+- Lipschutz: patience — skip weak setups, A+ confluence only; sitting out IS a position
+- Dennis: trade with structure — BOS = trend continuation, CHoCH = potential reversal
+- Kotegawa: discipline — if the level fails, the trade is wrong, zero exceptions
+
 MARKET SNAPSHOT:
 Price: {price} | Spread: {spread}pt | ATR: {atr:.1f}pt
 Session: {session} | H1: {h1_structure} | EMA(50): {ema_trend}
@@ -36,6 +45,8 @@ RULES (mandatory):
 - RSI 60-80 is normal in XAUUSD trends. Only reject RSI above 85 or below 15.
 - You are the PRIMARY decision maker. Evaluate signal quality and confluence freely.
 - REJECT only if: SL/TP values are clearly wrong (e.g. SL above entry for LONG).
+- CONFIDENCE SCALE: 0.85+ = A+ Soros-level confluence (multiple aligned signals)
+  0.70-0.84 = solid setup worth trading. Below 0.70 = skip (Lipschutz patience rule).
 
 Respond ONLY with valid JSON (no markdown):
 {{"decision":"LONG or SHORT or NO_TRADE","confidence":0.0-1.0,"reason":"<20 words","sl":{sl:.2f},"tp":{tp:.2f}}}
@@ -224,8 +235,14 @@ def _validate_response(r: dict) -> None:
 
 _EXIT_PROMPT_TEMPLATE = """\
 XAUUSD SMART EXIT ANALYSIS — all data provided, NO tool calls needed.
-You are a PROFIT OPTIMIZER. Your job: maximize profit from this open position.
+You are a PROFIT OPTIMIZER. Maximize profit from this open position.
 Respond with ONLY the JSON object, nothing else.
+
+THINK LIKE THE MASTERS:
+- Dennis/Lipschutz: LET WINNERS RUN — never exit early if trend intact
+- Soros: exit only when the reflexive feedback loop BREAKS (CHoCH, momentum reversal)
+- Druckenmiller: protect asymmetric gains — lock profits when structure weakens
+- Kotegawa: when exit signal is clear, ACT — no hesitation, no "hold a little longer"
 
 MARKET NOW:
 Price: {price} | ATR: {atr:.1f}pt | Session: {session} | EMA(50): {ema_trend}

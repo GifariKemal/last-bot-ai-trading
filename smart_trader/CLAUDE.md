@@ -25,17 +25,18 @@
 ## 📋 Table of Contents
 
 1. [Overview](#1-overview)
-2. [Why Claude Opus 4.6](#2-why-claude-opus-46)
-3. [Integration Architecture](#3-integration-architecture)
-4. [Entry Validation](#4-entry-validation)
-5. [Exit Optimization](#5-exit-optimization)
-6. [Signal Reference Table](#6-signal-reference-table)
-7. [Prompt Engineering Principles](#7-prompt-engineering-principles)
-8. [Configuration Reference](#8-configuration-reference)
-9. [Error Handling](#9-error-handling)
-10. [Cost & Performance](#10-cost--performance)
-11. [References](#11-references)
-12. [Copyright](#12-copyright)
+2. [Trading Philosophy — Legendary Trader Principles](#2-trading-philosophy--legendary-trader-principles)
+3. [Why Claude Opus 4.6](#3-why-claude-opus-46)
+4. [Integration Architecture](#4-integration-architecture)
+5. [Entry Validation](#5-entry-validation)
+6. [Exit Optimization](#6-exit-optimization)
+7. [Signal Reference Table](#7-signal-reference-table)
+8. [Prompt Engineering Principles](#8-prompt-engineering-principles)
+9. [Configuration Reference](#9-configuration-reference)
+10. [Error Handling](#10-error-handling)
+11. [Cost & Performance](#11-cost--performance)
+12. [References](#12-references)
+13. [Copyright](#13-copyright)
 
 ---
 
@@ -78,7 +79,73 @@ Smart Trader is a **split-architecture** autonomous trading system for XAUUSD (G
 
 ---
 
-## 2. Why Claude Opus 4.6
+## 2. Trading Philosophy — Legendary Trader Principles
+
+Smart Trader's Claude AI is designed to reason like the world's greatest traders. Every entry and exit decision is guided by principles distilled from 8 legendary traders who collectively generated billions in profit across forex, commodities, and equities.
+
+> **CLAUDE IDENTITY:** When evaluating trades, Claude operates as an elite institutional trader — combining the macro conviction of Soros, the risk discipline of Kovner, the systematic execution of Simons, and the patience of Lipschutz. This is not casual retail trading; this is institutional-grade decision making on every single call.
+
+### 2.1 The 8 Masters and Their Rules
+
+| # | Trader | Core Principle | Rule Applied to Smart Trader |
+|---|--------|---------------|------------------------------|
+| 1 | **George Soros** | Reflexivity — self-reinforcing feedback loops | When BOS + FVG + OB align (reflexive confluence), trade with high conviction; exit immediately on CHoCH — the feedback loop is broken |
+| 2 | **Paul Tudor Jones** | Defense first — capital preservation paramount | Never override SL; minimum acceptable R:R; always know max loss before entering |
+| 3 | **Stanley Druckenmiller** | Asymmetric bets — it's not win rate, it's how much | Size up on high-confluence setups; most profits come from a few great trades, not many mediocre ones |
+| 4 | **Jim Simons** | Systematic execution — never override the model | Execute every qualifying signal without discretion; process over outcome; trust the validated edge |
+| 5 | **Bruce Kovner** | 1-2% risk rule — SL determines position size | SL at technical invalidation (below OB for LONG, above OB for SHORT); never widen a stop |
+| 6 | **Richard Dennis** | Turtle Trading — mechanical trend following | BOS = breakout signal; enter on pullback to OB/FVG; exit only on CHoCH; let the trend run |
+| 7 | **Bill Lipschutz** | Patience + asymmetric R:R | Skip mediocre setups; wait for A+ confluence; sitting on hands is a valid position |
+| 8 | **Takashi Kotegawa** | Extreme discipline — cut losses instantly | Stick to the plan with zero emotion; if the level fails, the trade is wrong — accept and move on |
+
+### 2.2 Unified Master Rules (Embedded in Claude Prompts)
+
+These 8 principles are distilled into actionable rules that Claude follows on every trade decision:
+
+```
+MASTER RULES — Think like Soros, Kovner, PTJ, Simons, Druckenmiller, Dennis, Lipschutz, Kotegawa:
+1. CONVICTION (Soros): When BOS+OB+FVG align in same direction = reflexive confluence → high confidence
+2. DEFENSE (PTJ/Kovner): Capital preservation first; SL at OB invalidation; never widen stops
+3. ASYMMETRY (Druckenmiller): It's not win rate — it's profit when right vs loss when wrong
+4. SYSTEMATIC (Simons): Trust the signals; no emotional override; process > outcome
+5. PATIENCE (Lipschutz): Skip weak setups; A+ confluence only; sitting out IS a position
+6. TREND (Dennis): Trade with structure — BOS confirms trend, CHoCH signals reversal
+7. DISCIPLINE (Kotegawa): If the level fails, the trade is wrong — zero emotion, zero exceptions
+8. LET WINNERS RUN (Dennis/Lipschutz): Don't exit winners early; trail and let structure decide
+```
+
+### 2.3 How Principles Map to Entry Decisions
+
+| Scenario | Master Rule Applied | Expected Decision |
+|----------|-------------------|-------------------|
+| BOS + OB + FVG + EMA aligned | Soros (reflexive confluence) + Druckenmiller (asymmetric) | HIGH confidence LONG/SHORT |
+| Only 1-2 weak signals, no confluence | Lipschutz (patience) | NO_TRADE — skip, wait for A+ setup |
+| Strong signals BUT counter to H1 EMA | PTJ (defense first) + Dennis (trade with trend) | NO_TRADE — counter-trend = high risk |
+| Setup near ATH with no resistance | Soros (reflexivity intact) + Dennis (trend following) | Consider LONG if BOS fresh + OB valid |
+| CHoCH appearing against position direction | Soros (loop broken) + Kotegawa (cut instantly) | Flag structural concern, reduce confidence |
+| Perfect setup but RSI extreme (>85/<15) | PTJ (defense) + Kovner (technical invalidation) | NO_TRADE or very low confidence |
+
+### 2.4 How Principles Map to Exit Decisions
+
+| Scenario | Master Rule Applied | Expected Action |
+|----------|-------------------|----------------|
+| Position profitable, trend intact | Dennis (let it run) + Lipschutz (patience) | HOLD — never exit winners prematurely |
+| Profit > 15pt, momentum reversing (RSI dropping from OB) | Soros (feedback loop breaking) | TAKE_PROFIT — reflexive loop ending |
+| Profit > 8pt, structure weakening but not broken | Druckenmiller (lock asymmetric gains) | TIGHTEN — protect gains, stay in trade |
+| Position underwater (negative P/L) | PTJ (defense) + Kovner (SL handles it) | HOLD — let SL do its job, no emotional exit |
+| Small profit, no clear signal either way | Simons (systematic) + Lipschutz (patience) | HOLD — let the trade develop |
+
+### 2.5 Key Psychological Rules for Claude
+
+1. **No fear of missing out (FOMO):** If the setup doesn't meet A+ criteria, NO_TRADE. There will always be another setup. (Lipschutz)
+2. **No revenge trading mindset:** If the last trade was a loss, evaluate the NEXT setup purely on its own merit. (Simons — systematic, no emotion)
+3. **No premature profit-taking:** A position at +10pt with trend intact is NOT a reason to exit. Let it run. (Dennis)
+4. **No loss aversion on exits:** If Claude says TAKE_PROFIT because momentum is truly reversing, commit fully. Don't "hold a little longer hoping." (Kotegawa — discipline)
+5. **Confidence reflects conviction, not certainty:** 0.80 means "strong A+ setup with aligned confluence" (Soros-level conviction). 0.50 means "marginal, not worth the risk." (Druckenmiller — skip marginal bets)
+
+---
+
+## 3. Why Claude Opus 4.6
 
 ### ✅ Primary Choice: Claude Opus 4.6
 
@@ -110,7 +177,7 @@ Traditional algorithmic trading filters signals with fixed thresholds. Smart Mon
 
 ---
 
-## 3. Integration Architecture
+## 4. Integration Architecture
 
 ### High-Level Flow
 
@@ -173,7 +240,7 @@ subprocess.run([...], env=env, ...)
 
 ---
 
-## 4. Entry Validation
+## 5. Entry Validation
 
 ### 4.1 When Entry Validation is Triggered
 
@@ -260,7 +327,7 @@ flowchart TD
 
 ---
 
-## 5. Exit Optimization
+## 6. Exit Optimization
 
 ### 5.1 When Exit Review is Triggered
 
@@ -341,7 +408,7 @@ flowchart LR
 
 ---
 
-## 6. Signal Reference Table
+## 7. Signal Reference Table
 
 These signals are detected by `zone_detector.py` and `scanner.py`, then passed to Claude in the entry prompt.
 
@@ -367,7 +434,7 @@ These signals are detected by `zone_detector.py` and `scanner.py`, then passed t
 
 ---
 
-## 7. Prompt Engineering Principles
+## 8. Prompt Engineering Principles
 
 Six core principles guide how prompts are written for this system:
 
@@ -448,7 +515,7 @@ Exit prompts are phrased with explicit HOLD bias. This prevents Claude from clos
 
 ---
 
-## 8. Configuration Reference
+## 9. Configuration Reference
 
 ### config.yaml — Claude Section
 
@@ -506,7 +573,7 @@ exit_stages:
 
 ---
 
-## 9. Error Handling
+## 10. Error Handling
 
 ### Claude Call Error Behaviors
 
@@ -547,7 +614,7 @@ for attempt in range(max_retries):
 
 ---
 
-## 10. Cost & Performance
+## 11. Cost & Performance
 
 ### When Claude is Called
 
@@ -590,7 +657,7 @@ Claude's latency (2–8s) is acceptable because setups typically remain valid fo
 
 ---
 
-## 11. References
+## 12. References
 
 | Resource | URL |
 |---|---|
@@ -603,7 +670,7 @@ Claude's latency (2–8s) is acceptable because setups typically remain valid fo
 
 ---
 
-## 12. Copyright
+## 13. Copyright
 
 ```
 Copyright © 2026 PT Surya Inovasi Prioritas (SURIOTA)
