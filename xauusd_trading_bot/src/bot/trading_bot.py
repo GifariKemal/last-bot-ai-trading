@@ -141,6 +141,7 @@ class TradingBot:
         # State
         self.loop_interval = config.get("bot", {}).get("loop_interval", 1)
         self._last_m15_candle_time = None  # Track actual M15 candle open time
+        self._startup_warmup = True  # Skip signal processing on first M15 cycle
         self._last_market_data = None       # Cache last full analysis for fast path
         self.last_volatility_level = "medium"
 
@@ -543,6 +544,13 @@ class TradingBot:
 
                     # Full position management with fresh analysis
                     self._manage_positions(market_data, current_positions)
+
+                    # Startup warmup: first M15 cycle is analysis-only, no new entries.
+                    # Prevents blind entry on restart before bot has observed market context.
+                    if self._startup_warmup:
+                        self._startup_warmup = False
+                        self.logger.info("Startup warmup: analysis complete, skipping signals until next M15 candle")
+                        continue
 
                     # Generate and evaluate new signals (dynamic max positions)
                     max_pos = self._get_dynamic_max_positions(self.last_volatility_level, account_info)

@@ -54,7 +54,7 @@ account_protection:
   pause_duration_minutes: 60  # Pause duration after max consecutive losses
 
   max_drawdown_percent: 30.0  # XAUUSD $100 account: single trade risk ~21%, 15% was too tight
-  daily_profit_target: 3.0  # Optional: Stop after reaching daily profit (%)
+  # daily_profit_target: 3.0  # Disabled — let the bot trade throughout the day
 
 correlation:
   max_correlated_positions: 2  # Max positions in same direction
