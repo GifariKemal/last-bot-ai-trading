@@ -139,7 +139,8 @@ main.py
 - `trail_activation_rr: 2.72` — Start trailing at 2.72R
 
 ### SMC Lookbacks
-- `BOS_LOOKBACK_BARS = 20` (was 50 — bug fix 2026-02-22)
+- `swing_lookback = 5` (was 10 — M15-optimized 2026-02-23, sw=5 → PF=4.61, WR=64.7%)
+- `BOS_LOOKBACK_BARS = 50` (restored from 20 — needed with sw=5 for adequate BOS coverage)
 - `SWEEP_LOOKBACK_BARS = 20`
 
 ---

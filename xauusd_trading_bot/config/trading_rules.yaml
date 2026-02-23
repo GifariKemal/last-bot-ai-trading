@@ -62,7 +62,7 @@ smc_indicators:
 
   structure:
     enabled: true
-    swing_lookback: 10  # Bars to each side for swing detection
+    swing_lookback: 5  # Bars to each side for swing detection (M15-optimized: sw=5 → PF=4.61, WR=64.7%)
     bos_confirmation_bars: 2  # Bars to confirm break of structure
     choch_weight: 0.30  # Higher weight for CHoCH (stronger signal)
     bos_weight: 0.15

@@ -49,7 +49,7 @@ class SMCIndicatorsV4:
 
     # ── Signal lookback windows (matching V3 design decisions) ───────────────
 
-    BOS_LOOKBACK_BARS = 20      # 20 bars = 5h on M15 (was 50=12.5h, too stale)
+    BOS_LOOKBACK_BARS = 50      # 50 bars = 12.5h on M15 (matches backtest: sw=5 + BOS=50 → PF=4.61)
     SWEEP_LOOKBACK_BARS = 20    # same as V3: sweep_confirmation_bars=20
 
     def __init__(self, config: Optional[Dict] = None):
@@ -62,7 +62,7 @@ class SMCIndicatorsV4:
         struct_cfg = config.get("structure", {})
         liq_cfg    = config.get("liquidity", {})
 
-        self.swing_length   = struct_cfg.get("swing_lookback", 10)  # V3 default
+        self.swing_length   = struct_cfg.get("swing_lookback", 5)  # M15-optimized (was 10, too few swings)
         self.range_percent  = liq_cfg.get("range_percent", 0.01)   # ~1% (~$50)
 
         # Signal weights (same as V3 SMCIndicators defaults)
