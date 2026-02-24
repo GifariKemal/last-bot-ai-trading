@@ -50,8 +50,8 @@ def configure(cfg: dict) -> None:
 
 # ── API Callers ──────────────────────────────────────────────────────────────
 
-def _call_openai_compatible(prompt: str, model: str, timeout: int = 60) -> Optional[dict]:
-    """Call OpenAI-compatible API and return parsed JSON response."""
+def _call_openai_compatible(prompt: str, model: str, timeout: int = 60) -> tuple[Optional[dict], str]:
+    """Call OpenAI-compatible API. Returns (parsed_dict, error_reason)."""
     try:
         resp = requests.post(
             f"{_config['api_base']}/chat/completions",
@@ -68,19 +68,33 @@ def _call_openai_compatible(prompt: str, model: str, timeout: int = 60) -> Optio
             timeout=timeout,
         )
         if not resp.ok:
-            logger.debug(f"LLM API error ({model}): {resp.status_code} {resp.text[:150]}")
-            return None
+            body = resp.text[:200]
+            logger.debug(f"LLM API error ({model}): {resp.status_code} {body}")
+            # Detect specific error types
+            if "ExceededBudget" in body or "over budget" in body.lower():
+                return None, "BUDGET EXCEEDED"
+            if resp.status_code == 401:
+                return None, "AUTH ERROR"
+            if resp.status_code == 429:
+                return None, "RATE LIMITED"
+            return None, f"HTTP {resp.status_code}"
 
         data = resp.json()
         content = data["choices"][0]["message"]["content"].strip()
-        return _extract_and_parse_json(content)
+        parsed = _extract_and_parse_json(content)
+        if parsed is None:
+            return None, "JSON PARSE FAIL"
+        return parsed, ""
+    except requests.Timeout:
+        logger.debug(f"LLM API timeout ({model})")
+        return None, "TIMEOUT"
     except Exception as e:
         logger.debug(f"LLM API call failed ({model}): {e}")
-        return None
+        return None, f"ERROR"
 
 
-def _call_sonnet_cli(prompt: str, claude_cmd: str, timeout: int = 60) -> Optional[dict]:
-    """Call Claude Sonnet via CLI subprocess."""
+def _call_sonnet_cli(prompt: str, claude_cmd: str, timeout: int = 60) -> tuple[Optional[dict], str]:
+    """Call Claude Sonnet via CLI subprocess. Returns (parsed_dict, error_reason)."""
     try:
         clean_env = os.environ.copy()
         clean_env.pop("CLAUDECODE", None)
@@ -105,15 +119,18 @@ def _call_sonnet_cli(prompt: str, claude_cmd: str, timeout: int = 60) -> Optiona
 
         stdout = result.stdout.strip()
         if not stdout:
-            return None
+            return None, "EMPTY RESPONSE"
 
-        return _extract_and_parse_json(stdout)
+        parsed = _extract_and_parse_json(stdout)
+        if parsed is None:
+            return None, "JSON PARSE FAIL"
+        return parsed, ""
     except subprocess.TimeoutExpired:
         logger.debug("Sonnet CLI timed out")
-        return None
+        return None, "TIMEOUT"
     except Exception as e:
         logger.debug(f"Sonnet CLI error: {e}")
-        return None
+        return None, "ERROR"
 
 
 def _extract_and_parse_json(text: str) -> Optional[dict]:
@@ -306,8 +323,9 @@ def _format_entry_comparison(setup: dict, opus: dict, results: list) -> str:
         bar = _score_bar(sc)
 
         if resp is None:
+            err = r.get("error", "TIMEOUT") or "TIMEOUT"
             lines.append(f"")
-            lines.append(f"{medal} <b>{name}</b>  ⚠️ TIMEOUT")
+            lines.append(f"{medal} <b>{name}</b>  ⚠️ {err}")
             lines.append(f"   └ {bar} --/100 | {_latency_str(lat)}")
             continue
 
@@ -378,8 +396,9 @@ def _format_exit_comparison(pos_data: dict, opus: dict, results: list) -> str:
         bar = _score_bar(sc)
 
         if resp is None:
+            err = r.get("error", "TIMEOUT") or "TIMEOUT"
             lines.append(f"")
-            lines.append(f"{medal} <b>{name}</b>  ⚠️ TIMEOUT")
+            lines.append(f"{medal} <b>{name}</b>  ⚠️ {err}")
             lines.append(f"   └ {bar} --/100 | {_latency_str(lat)}")
             continue
 
@@ -429,16 +448,18 @@ def _call_model(name: str, model_cfg: dict, prompt: str, claude_cmd: str, timeou
     """Call a single LLM and return result dict."""
     t0 = time.time()
     response = None
+    error = ""
 
     if model_cfg["type"] == "cli":
-        response = _call_sonnet_cli(prompt, claude_cmd, timeout)
+        response, error = _call_sonnet_cli(prompt, claude_cmd, timeout)
     elif model_cfg["type"] == "api":
-        response = _call_openai_compatible(prompt, model_cfg["model"], timeout)
+        response, error = _call_openai_compatible(prompt, model_cfg["model"], timeout)
 
     elapsed = time.time() - t0
     return {
         "name": name,
         "response": response,
+        "error": error,
         "latency_s": round(elapsed, 1),
     }
 
@@ -473,6 +494,7 @@ def _run_entry_comparison(setup: dict, opus_response: dict, claude_cfg: dict) ->
                     results.append({
                         "name": name,
                         "response": None,
+                        "error": "ERROR",
                         "scoring": {"score": 0},
                         "latency_s": 0,
                     })
@@ -521,6 +543,7 @@ def _run_exit_comparison(pos_data: dict, opus_response: dict, claude_cfg: dict) 
                     results.append({
                         "name": name,
                         "response": None,
+                        "error": "ERROR",
                         "scoring": {"score": 0},
                         "latency_s": 0,
                     })
