@@ -103,6 +103,57 @@ def _zone_key(zone: dict, direction: str) -> str:
     return f"{direction}_{zone.get('type')}_{zone.get('detected_at', '')}"
 
 
+def _warmup_cooldown_from_history(magic: int) -> None:
+    """
+    On startup, reconstruct _last_close_info from MT5 deal history so the
+    adaptive cooldown survives bot restarts.  Looks for most recent closing deal
+    with our magic number within the last 24 hours.
+    """
+    global _last_close_info
+    from datetime import timedelta
+    try:
+        now = datetime.now(timezone.utc)
+        from_time = now - timedelta(days=1)
+        deals = mt5.history_deals_get(from_time, now)
+        if not deals:
+            return
+
+        # Walk backward to find most recent OUT deal with our magic
+        for d in reversed(deals):
+            if d.entry == 1 and d.magic == magic:  # DEAL_ENTRY_OUT + our bot
+                close_price = d.price
+                direction = "LONG" if d.type == 1 else "SHORT"  # SELL=close long
+
+                # Find matching IN deal for entry price
+                entry_price = close_price  # fallback
+                for d2 in deals:
+                    if d2.position_id == d.position_id and d2.entry == 0:
+                        entry_price = d2.price
+                        break
+
+                if direction == "LONG":
+                    pnl_pts = close_price - entry_price
+                else:
+                    pnl_pts = entry_price - close_price
+
+                close_time = datetime.fromtimestamp(d.time, tz=timezone.utc)
+                _last_close_info = {
+                    "time": close_time,
+                    "direction": direction,
+                    "zone_type": None,   # not recoverable from deal history
+                    "pnl_pts": pnl_pts,
+                    "entry_price": entry_price,
+                }
+                elapsed = (now - close_time).total_seconds() / 60
+                logger.info(
+                    f"Cooldown warmup | last close {elapsed:.0f}min ago | "
+                    f"{direction} | {pnl_pts:+.1f}pt | ${d.profit:+.2f}"
+                )
+                return
+    except Exception as e:
+        logger.debug(f"Cooldown warmup error: {e}")
+
+
 # ── Adaptive re-entry cooldown ───────────────────────────────────────────────
 
 def _calc_adaptive_cooldown(pnl_pts: float, atr: float, session_name: str) -> float:
@@ -927,6 +978,9 @@ def main():
     ):
         logger.error("MT5 connection failed — exiting")
         sys.exit(1)
+
+    # ── Warmup: restore cooldown state from deal history ──────────────────────
+    _warmup_cooldown_from_history(magic=account_cfg.get("magic", 202602))
 
     # ── Initialize Telegram notifier ──────────────────────────────────────────
     tg_cfg = _cfg.get("telegram", {})
