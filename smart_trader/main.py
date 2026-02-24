@@ -87,10 +87,95 @@ _session_trades: int = 0  # entries placed this session
 # ── Position tracking (detect broker-side closes: SL/TP hit) ────────────────
 # {ticket: {direction, entry, sl, tp, time_open, volume}}
 _tracked_positions: dict[int, dict] = {}
+_last_close_info: Optional[dict] = None    # {time, direction, zone_type, pnl_pts, entry_price}
+_last_entry_zone_type: Optional[str] = None  # zone type of most recent entry
 
 
 def _zone_key(zone: dict, direction: str) -> str:
     return f"{direction}_{zone.get('type')}_{zone.get('detected_at', '')}"
+
+
+# ── Adaptive re-entry cooldown ───────────────────────────────────────────────
+
+def _calc_adaptive_cooldown(pnl_pts: float, atr: float, session_name: str) -> float:
+    """
+    Dynamic post-close cooldown in minutes.
+    H1-aware: base = 1 candle (60 min) for fresh structure data.
+    Adapts to P/L outcome, volatility, and session liquidity.
+    """
+    base = 60.0
+
+    # P/L factor: loss → longer wait, profit → shorter
+    if pnl_pts < -5:
+        pnl_mult = 1.5   # loss: 1.5 candles — market proved us wrong
+    elif pnl_pts < 3:
+        pnl_mult = 1.0   # scratch/breakeven: 1 candle
+    else:
+        pnl_mult = 0.5   # profit: half candle — direction was right
+
+    # Volatility factor: high ATR → more settling time (normalized to ~20pt)
+    atr_mult = max(0.75, min(1.5, atr / 20.0))
+
+    # Session liquidity factor
+    session_mult = {
+        "OVERLAP": 0.75,   # fast-moving, zones refresh quickly
+        "LONDON": 1.0,
+        "NEW_YORK": 1.0,
+        "LATE_NY": 1.25,   # thinning liquidity
+        "ASIAN": 1.25,     # slow, zones persist longer
+        "OFF_HOURS": 2.0,
+    }.get(session_name, 1.0)
+
+    return base * pnl_mult * atr_mult * session_mult
+
+
+def _check_reentry_cooldown(
+    direction: str, zone_type: str, atr: float,
+    session_name: str, base_min_conf: float,
+) -> tuple[bool, float]:
+    """
+    Adaptive re-entry guard after trade close.
+    Returns (allowed, effective_min_confidence).
+    - Same zone + same direction → BLOCKED (stale setup)
+    - Same direction, different zone → require higher confidence
+    - Different direction → allowed (fresh reversal signal)
+    """
+    if _last_close_info is None:
+        return True, base_min_conf
+
+    elapsed = (datetime.now(timezone.utc) - _last_close_info["time"]).total_seconds() / 60
+    cooldown = _calc_adaptive_cooldown(_last_close_info["pnl_pts"], atr, session_name)
+
+    if elapsed >= cooldown:
+        return True, base_min_conf  # cooldown expired
+
+    same_dir = direction == _last_close_info["direction"]
+    same_zone = zone_type == _last_close_info.get("zone_type")
+    remaining = cooldown - elapsed
+
+    if same_dir and same_zone:
+        # BLOCKED: identical stale setup, need fresh H1 structure
+        logger.info(
+            f"  Skip {direction} — re-entry cooldown {remaining:.0f}min left | "
+            f"same zone {zone_type} (need fresh H1 candle)"
+        )
+        logger.bind(kind="MARKET").debug(
+            f"  SKIP {direction} | reason=reentry_cooldown({remaining:.0f}min) | "
+            f"same_zone={zone_type}"
+        )
+        return False, 0
+
+    if same_dir:
+        # Different zone but same direction: allow with elevated confidence
+        elevated = max(base_min_conf, 0.80)
+        logger.info(
+            f"  Re-entry cooldown ({remaining:.0f}min left) — "
+            f"different zone, min_conf raised {base_min_conf:.2f}→{elevated:.2f}"
+        )
+        return True, elevated
+
+    # Different direction: fresh reversal signal, normal threshold
+    return True, base_min_conf
 
 
 def _track_and_detect_closes(symbol: str, magic: int) -> None:
@@ -99,7 +184,7 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
     If a tracked position disappears, it was closed externally (SL/TP hit by broker).
     Log to trade journal and send Telegram notification.
     """
-    global _tracked_positions
+    global _tracked_positions, _last_close_info
 
     positions = mt5c.get_positions(symbol)
     our_pos = [p for p in positions if p.get("_raw") and p["_raw"].magic == magic]
@@ -122,11 +207,21 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
     # Exclude tickets the bot itself closed (scratch/claude) to prevent false "CLOSED BY BROKER"
     bot_closed = exe.get_bot_closed_tickets()
     disappeared -= bot_closed
-    # Clean bot-closed tickets from tracking so they don't re-trigger next cycle
-    for t in bot_closed:
-        _tracked_positions.pop(t, None)
-    exe.clear_bot_closed_tickets()
     now = datetime.now(timezone.utc)
+    # Record close info for bot-closed tickets (cooldown tracking, no notification)
+    for t in bot_closed:
+        info = _tracked_positions.pop(t, None)
+        if info:
+            cp, _ = mt5c.get_deal_close_info(t)
+            entry, d = info["entry"], info["direction"]
+            _last_close_info = {
+                "time": now,
+                "direction": d,
+                "zone_type": _last_entry_zone_type,
+                "pnl_pts": ((cp - entry) if d == "LONG" else (entry - cp)) if cp else 0,
+                "entry_price": entry,
+            }
+    exe.clear_bot_closed_tickets()
 
     for ticket in disappeared:
         info = _tracked_positions.pop(ticket)
@@ -217,6 +312,15 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
             "last_sl":     last_sl,
             "last_tp":     last_tp,
         })
+
+        # ── Record for adaptive re-entry cooldown ─────────────────────────────
+        _last_close_info = {
+            "time": now,
+            "direction": direction,
+            "zone_type": _last_entry_zone_type,
+            "pnl_pts": pnl_pts,
+            "entry_price": entry,
+        }
 
 
 # ── One scan cycle ────────────────────────────────────────────────────────────
@@ -410,6 +514,13 @@ def run_scan_cycle(cfg: dict) -> None:
             logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=EMA_counter_trend(BEARISH)")
             continue
 
+        # ── Adaptive re-entry cooldown ────────────────────────────────────
+        reentry_ok, effective_min_conf = _check_reentry_cooldown(
+            direction, zone.get("type", ""), atr_val, session["name"], min_conf,
+        )
+        if not reentry_ok:
+            continue
+
         # Risk filters
         risk_ok, risk_msg = scan.check_risk_filters(
             account, positions, direction, max_pos, max_dir, max_dd, free_m
@@ -509,13 +620,13 @@ def run_scan_cycle(cfg: dict) -> None:
             )
             continue
 
-        if confidence < min_conf:
+        if confidence < effective_min_conf:
             logger.info(
-                f"  Claude >> {decision} REJECTED | conf={confidence:.2f} < min {min_conf} | {reason} "
+                f"  Claude >> {decision} REJECTED | conf={confidence:.2f} < min {effective_min_conf:.2f} | {reason} "
                 f"| {_cl_lat_s:.1f}s | ~{_cl_tokens} tokens"
             )
             logger.bind(kind="MARKET").debug(
-                f"  CLAUDE REJECTED | conf={confidence:.2f} < min={min_conf} | {reason}"
+                f"  CLAUDE REJECTED | conf={confidence:.2f} < min={effective_min_conf:.2f} | {reason}"
             )
             continue
 
@@ -534,6 +645,8 @@ def run_scan_cycle(cfg: dict) -> None:
 
         result = exe.place_trade(symbol, decision, exec_sl, exec_tp, account.get("balance", 100), t_cfg)
         if result and result.get("success"):
+            global _last_entry_zone_type
+            _last_entry_zone_type = zone.get("type")
             ticket = result.get("ticket", 0)
             log_trade("ENTRY", {
                 "direction":  decision,
