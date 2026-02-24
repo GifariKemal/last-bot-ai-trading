@@ -242,23 +242,39 @@ def get_deal_close_info(position_ticket: int) -> tuple:
     """
     from datetime import timedelta
     try:
-        # Search deals from last 24 hours
         now = datetime.now(timezone.utc)
-        from_time = now - timedelta(days=1)
+        from_time = now - timedelta(days=7)  # wide window (server tz offset safe)
+
+        # Method 1: position= filter
         deals = mt5.history_deals_get(from_time, now, position=position_ticket)
-        if deals is None or len(deals) == 0:
-            return None, None
+        if deals and len(deals) > 0:
+            for d in reversed(deals):
+                if d.entry == 1:  # DEAL_ENTRY_OUT
+                    logger.debug(
+                        f"deal_close({position_ticket}): OUT deal "
+                        f"price={d.price} profit={d.profit} pos_id={d.position_id}"
+                    )
+                    return d.price, d.profit
+            logger.debug(
+                f"deal_close({position_ticket}): {len(deals)} deals "
+                f"via position= filter but none with entry=OUT"
+            )
 
-        # Find the closing deal (entry=1 means OUT / close)
-        for d in reversed(deals):
-            if d.entry == 1:  # DEAL_ENTRY_OUT
-                return d.price, d.profit
+        # Method 2: manual position_id filter on ALL recent deals
+        all_deals = mt5.history_deals_get(from_time, now)
+        if all_deals:
+            for d in reversed(all_deals):
+                if d.position_id == position_ticket and d.entry == 1:
+                    logger.debug(
+                        f"deal_close({position_ticket}): OUT deal via manual filter "
+                        f"price={d.price} profit={d.profit}"
+                    )
+                    return d.price, d.profit
 
-        # Fallback: last deal
-        last = deals[-1]
-        return last.price, last.profit
+        logger.debug(f"deal_close({position_ticket}): no closing deal found")
+        return None, None
     except Exception as e:
-        logger.debug(f"get_deal_close_info({position_ticket}) error: {e}")
+        logger.debug(f"deal_close({position_ticket}) error: {e}")
         return None, None
 
 

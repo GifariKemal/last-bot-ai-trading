@@ -59,6 +59,14 @@ def setup_logging(cfg: dict) -> None:
 
 _trade_log: list[dict] = []
 
+# Fixed column order — superset of ENTRY + EXIT fields (prevents CSV misalignment)
+_CSV_FIELDS = [
+    "timestamp", "event", "direction", "confidence", "reason",
+    "price", "sl", "tp", "lot", "zone_type", "signals", "rr",
+    "ticket", "entry_price", "close_price", "pnl_pts", "pnl_usd",
+    "close_type", "age_min", "last_sl", "last_tp",
+]
+
 def log_trade(event: str, data: dict) -> None:
     import csv
     trades_csv = _cfg.get("paths", {}).get("trades_csv", "logs/trades.csv")
@@ -69,9 +77,9 @@ def log_trade(event: str, data: dict) -> None:
         **data,
     }
     _trade_log.append(row)
-    write_header = not Path(trades_csv).exists()
+    write_header = not Path(trades_csv).exists() or Path(trades_csv).stat().st_size == 0
     with open(trades_csv, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=row.keys())
+        w = csv.DictWriter(f, fieldnames=_CSV_FIELDS, extrasaction="ignore")
         if write_header:
             w.writeheader()
         w.writerow(row)
@@ -186,6 +194,7 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
     """
     global _tracked_positions, _last_close_info
 
+    now = datetime.now(timezone.utc)
     positions = mt5c.get_positions(symbol)
     our_pos = [p for p in positions if p.get("_raw") and p["_raw"].magic == magic]
     current_tickets = {p["ticket"] for p in our_pos}
@@ -193,21 +202,27 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
     # ── Update tracking for new/existing positions ────────────────────────────
     for p in our_pos:
         t = p["ticket"]
-        _tracked_positions[t] = {
-            "direction":  p["type"],
-            "entry":      p["price_open"],
-            "sl":         p["sl"],
-            "tp":         p["tp"],
-            "time_open":  p.get("time_open"),
-            "volume":     p["volume"],
-        }
+        if t in _tracked_positions:
+            # Update mutable fields only (SL/TP change from BE/trail)
+            _tracked_positions[t]["sl"] = p["sl"]
+            _tracked_positions[t]["tp"] = p["tp"]
+            _tracked_positions[t]["volume"] = p["volume"]
+        else:
+            # New position — record actual UTC time (p.time is server-local on IC Markets)
+            _tracked_positions[t] = {
+                "direction":  p["type"],
+                "entry":      p["price_open"],
+                "sl":         p["sl"],
+                "tp":         p["tp"],
+                "time_open":  now,
+                "volume":     p["volume"],
+            }
 
     # ── Detect disappeared positions ──────────────────────────────────────────
     disappeared = set(_tracked_positions.keys()) - current_tickets
     # Exclude tickets the bot itself closed (scratch/claude) to prevent false "CLOSED BY BROKER"
     bot_closed = exe.get_bot_closed_tickets()
     disappeared -= bot_closed
-    now = datetime.now(timezone.utc)
     # Record close info for bot-closed tickets (cooldown tracking, no notification)
     for t in bot_closed:
         info = _tracked_positions.pop(t, None)
