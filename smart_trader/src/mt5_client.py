@@ -239,74 +239,52 @@ def get_deal_close_info(position_ticket: int) -> tuple:
     """
     Look up the closing deal for a position from MT5 deal history.
     Returns (close_price, pnl_usd) or (None, None) if not found.
+
+    NOTE: IC Markets' position= filter is broken (returns ALL deals).
+    We ONLY use manual position_id matching on the full deal list.
     """
     from datetime import timedelta
     try:
         now = datetime.now(timezone.utc)
-        from_time = now - timedelta(days=7)  # wide window (server tz offset safe)
+        from_time = now - timedelta(days=7)
 
-        # Method 1: position= filter
-        deals = mt5.history_deals_get(from_time, now, position=position_ticket)
-        n_pos = len(deals) if deals else 0
-        logger.info(
-            f"deal_close({position_ticket}): position= filter returned {n_pos} deals"
-        )
-        if deals and n_pos > 0:
-            for i, d in enumerate(deals):
-                logger.info(
-                    f"  deal[{i}] ticket={d.ticket} pos_id={d.position_id} "
-                    f"entry={d.entry} type={d.type} price={d.price} "
-                    f"volume={d.volume} profit={d.profit} "
-                    f"magic={d.magic} comment={d.comment} "
-                    f"time={datetime.fromtimestamp(d.time, tz=timezone.utc).isoformat()}"
-                )
-            for d in reversed(deals):
-                if d.entry == 1:  # DEAL_ENTRY_OUT
-                    logger.info(
-                        f"deal_close({position_ticket}): SELECTED OUT deal "
-                        f"ticket={d.ticket} price={d.price} profit={d.profit} "
-                        f"pos_id={d.position_id}"
-                    )
-                    return d.price, d.profit
+        all_deals = mt5.history_deals_get(from_time, now)
+        if not all_deals:
+            logger.info(f"deal_close({position_ticket}): no deals in last 7 days")
+            return None, None
+
+        # Manual filter: only deals with matching position_id
+        matched = [d for d in all_deals if d.position_id == position_ticket]
+        if not matched:
             logger.info(
-                f"deal_close({position_ticket}): {n_pos} deals but none with entry=OUT"
+                f"deal_close({position_ticket}): no deals with position_id match "
+                f"in {len(all_deals)} total deals"
+            )
+            return None, None
+
+        logger.info(
+            f"deal_close({position_ticket}): {len(matched)} deals matched position_id"
+        )
+        for i, d in enumerate(matched):
+            logger.info(
+                f"  matched[{i}] ticket={d.ticket} entry={d.entry} "
+                f"type={d.type} price={d.price} profit={d.profit} "
+                f"magic={d.magic} comment={d.comment} "
+                f"time={datetime.fromtimestamp(d.time, tz=timezone.utc).isoformat()}"
             )
 
-        # Method 2: manual position_id filter on ALL recent deals
-        all_deals = mt5.history_deals_get(from_time, now)
-        n_all = len(all_deals) if all_deals else 0
-        logger.info(
-            f"deal_close({position_ticket}): scanning {n_all} total deals "
-            f"for position_id match"
-        )
-        if all_deals:
-            matched = [d for d in all_deals if d.position_id == position_ticket]
-            if matched:
+        # Find OUT deal (entry=1)
+        for d in reversed(matched):
+            if d.entry == 1:
                 logger.info(
-                    f"deal_close({position_ticket}): {len(matched)} deals matched "
-                    f"position_id"
+                    f"deal_close({position_ticket}): SELECTED OUT deal "
+                    f"ticket={d.ticket} price={d.price} profit={d.profit}"
                 )
-                for i, d in enumerate(matched):
-                    logger.info(
-                        f"  matched[{i}] ticket={d.ticket} entry={d.entry} "
-                        f"type={d.type} price={d.price} profit={d.profit} "
-                        f"magic={d.magic} "
-                        f"time={datetime.fromtimestamp(d.time, tz=timezone.utc).isoformat()}"
-                    )
-                for d in reversed(matched):
-                    if d.entry == 1:
-                        logger.info(
-                            f"deal_close({position_ticket}): SELECTED via manual "
-                            f"ticket={d.ticket} price={d.price} profit={d.profit}"
-                        )
-                        return d.price, d.profit
-            else:
-                logger.info(
-                    f"deal_close({position_ticket}): NO deals with position_id match "
-                    f"in {n_all} total deals"
-                )
+                return d.price, d.profit
 
-        logger.info(f"deal_close({position_ticket}): no closing deal found anywhere")
+        logger.info(
+            f"deal_close({position_ticket}): {len(matched)} deals but none with entry=OUT"
+        )
         return None, None
     except Exception as e:
         logger.info(f"deal_close({position_ticket}) error: {e}")
