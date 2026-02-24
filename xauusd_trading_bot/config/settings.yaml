@@ -73,7 +73,7 @@ regime_weights:
     tech_weight: 0.394
     market_weight: 0.05
     mtf_weight: 0.10
-    min_confluence: 0.437
+    min_confluence: 0.550  # Floor 0.55 for all regimes (was 0.437 — allowed marginal 0.49 entries)
     min_smc_signals: 1
     atr_sl_mult: 2.60
   ranging:

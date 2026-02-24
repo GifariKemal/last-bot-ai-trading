@@ -127,7 +127,7 @@ main.py
 - `checks["confluence_met"] = True` (adaptive scorer `passing` is sole gatekeeper)
 
 ### Regime Weights (settings.yaml)
-- Trending: min_conf=0.437, min_smc=1, sl_mult=2.60
+- Trending: min_conf=0.550, min_smc=1, sl_mult=2.60  (floor 0.55 — was 0.437, allowed marginal entries)
 - Ranging: min_conf=0.550, min_smc=3, sl_mult=4.66
 - Breakout: min_conf=0.614, min_smc=3, sl_mult=4.26
 - Reversal: min_conf=0.589, min_smc=2, sl_mult=4.39
