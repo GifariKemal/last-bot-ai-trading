@@ -116,7 +116,22 @@ def _warmup_cooldown_from_history(magic: int) -> None:
         from_time = now - timedelta(days=1)
         deals = mt5.history_deals_get(from_time, now)
         if not deals:
+            logger.info("Cooldown warmup | no deals in last 24h")
             return
+
+        # Log all our bot's deals for debugging
+        our_deals = [d for d in deals if d.magic == magic]
+        logger.info(
+            f"Cooldown warmup | {len(deals)} total deals, "
+            f"{len(our_deals)} with magic={magic}"
+        )
+        for i, d in enumerate(our_deals):
+            logger.info(
+                f"  our_deal[{i}] ticket={d.ticket} pos_id={d.position_id} "
+                f"entry={d.entry} type={d.type} price={d.price} "
+                f"profit={d.profit} volume={d.volume} "
+                f"time={datetime.fromtimestamp(d.time, tz=timezone.utc).isoformat()}"
+            )
 
         # Walk backward to find most recent OUT deal with our magic
         for d in reversed(deals):
@@ -146,12 +161,15 @@ def _warmup_cooldown_from_history(magic: int) -> None:
                 }
                 elapsed = (now - close_time).total_seconds() / 60
                 logger.info(
-                    f"Cooldown warmup | last close {elapsed:.0f}min ago | "
-                    f"{direction} | {pnl_pts:+.1f}pt | ${d.profit:+.2f}"
+                    f"Cooldown warmup | SELECTED deal ticket={d.ticket} "
+                    f"pos_id={d.position_id} | close {elapsed:.0f}min ago | "
+                    f"{direction} | entry={entry_price} close={close_price} "
+                    f"{pnl_pts:+.1f}pt | ${d.profit:+.2f}"
                 )
                 return
+        logger.info("Cooldown warmup | no OUT deals found for our magic")
     except Exception as e:
-        logger.debug(f"Cooldown warmup error: {e}")
+        logger.info(f"Cooldown warmup error: {e}")
 
 
 # ── Adaptive re-entry cooldown ───────────────────────────────────────────────

@@ -247,34 +247,69 @@ def get_deal_close_info(position_ticket: int) -> tuple:
 
         # Method 1: position= filter
         deals = mt5.history_deals_get(from_time, now, position=position_ticket)
-        if deals and len(deals) > 0:
+        n_pos = len(deals) if deals else 0
+        logger.info(
+            f"deal_close({position_ticket}): position= filter returned {n_pos} deals"
+        )
+        if deals and n_pos > 0:
+            for i, d in enumerate(deals):
+                logger.info(
+                    f"  deal[{i}] ticket={d.ticket} pos_id={d.position_id} "
+                    f"entry={d.entry} type={d.type} price={d.price} "
+                    f"volume={d.volume} profit={d.profit} "
+                    f"magic={d.magic} comment={d.comment} "
+                    f"time={datetime.fromtimestamp(d.time, tz=timezone.utc).isoformat()}"
+                )
             for d in reversed(deals):
                 if d.entry == 1:  # DEAL_ENTRY_OUT
-                    logger.debug(
-                        f"deal_close({position_ticket}): OUT deal "
-                        f"price={d.price} profit={d.profit} pos_id={d.position_id}"
+                    logger.info(
+                        f"deal_close({position_ticket}): SELECTED OUT deal "
+                        f"ticket={d.ticket} price={d.price} profit={d.profit} "
+                        f"pos_id={d.position_id}"
                     )
                     return d.price, d.profit
-            logger.debug(
-                f"deal_close({position_ticket}): {len(deals)} deals "
-                f"via position= filter but none with entry=OUT"
+            logger.info(
+                f"deal_close({position_ticket}): {n_pos} deals but none with entry=OUT"
             )
 
         # Method 2: manual position_id filter on ALL recent deals
         all_deals = mt5.history_deals_get(from_time, now)
+        n_all = len(all_deals) if all_deals else 0
+        logger.info(
+            f"deal_close({position_ticket}): scanning {n_all} total deals "
+            f"for position_id match"
+        )
         if all_deals:
-            for d in reversed(all_deals):
-                if d.position_id == position_ticket and d.entry == 1:
-                    logger.debug(
-                        f"deal_close({position_ticket}): OUT deal via manual filter "
-                        f"price={d.price} profit={d.profit}"
+            matched = [d for d in all_deals if d.position_id == position_ticket]
+            if matched:
+                logger.info(
+                    f"deal_close({position_ticket}): {len(matched)} deals matched "
+                    f"position_id"
+                )
+                for i, d in enumerate(matched):
+                    logger.info(
+                        f"  matched[{i}] ticket={d.ticket} entry={d.entry} "
+                        f"type={d.type} price={d.price} profit={d.profit} "
+                        f"magic={d.magic} "
+                        f"time={datetime.fromtimestamp(d.time, tz=timezone.utc).isoformat()}"
                     )
-                    return d.price, d.profit
+                for d in reversed(matched):
+                    if d.entry == 1:
+                        logger.info(
+                            f"deal_close({position_ticket}): SELECTED via manual "
+                            f"ticket={d.ticket} price={d.price} profit={d.profit}"
+                        )
+                        return d.price, d.profit
+            else:
+                logger.info(
+                    f"deal_close({position_ticket}): NO deals with position_id match "
+                    f"in {n_all} total deals"
+                )
 
-        logger.debug(f"deal_close({position_ticket}): no closing deal found")
+        logger.info(f"deal_close({position_ticket}): no closing deal found anywhere")
         return None, None
     except Exception as e:
-        logger.debug(f"deal_close({position_ticket}) error: {e}")
+        logger.info(f"deal_close({position_ticket}) error: {e}")
         return None, None
 
 
