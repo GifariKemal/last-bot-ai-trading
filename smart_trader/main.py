@@ -172,38 +172,12 @@ def _warmup_cooldown_from_history(magic: int) -> None:
         logger.info(f"Cooldown warmup error: {e}")
 
 
-# ── Adaptive re-entry cooldown ───────────────────────────────────────────────
+# ── H1-candle re-entry cooldown ──────────────────────────────────────────────
 
-def _calc_adaptive_cooldown(pnl_pts: float, atr: float, session_name: str) -> float:
-    """
-    Dynamic post-close cooldown in minutes.
-    H1-aware: base = 1 candle (60 min) for fresh structure data.
-    Adapts to P/L outcome, volatility, and session liquidity.
-    """
-    base = 60.0
-
-    # P/L factor: loss → longer wait, profit → shorter
-    if pnl_pts < -5:
-        pnl_mult = 1.5   # loss: 1.5 candles — market proved us wrong
-    elif pnl_pts < 3:
-        pnl_mult = 1.0   # scratch/breakeven: 1 candle
-    else:
-        pnl_mult = 0.5   # profit: half candle — direction was right
-
-    # Volatility factor: high ATR → more settling time (normalized to ~20pt)
-    atr_mult = max(0.75, min(1.5, atr / 20.0))
-
-    # Session liquidity factor
-    session_mult = {
-        "OVERLAP": 0.75,   # fast-moving, zones refresh quickly
-        "LONDON": 1.0,
-        "NEW_YORK": 1.0,
-        "LATE_NY": 1.25,   # thinning liquidity
-        "ASIAN": 1.25,     # slow, zones persist longer
-        "OFF_HOURS": 2.0,
-    }.get(session_name, 1.0)
-
-    return base * pnl_mult * atr_mult * session_mult
+def _next_h1_boundary(dt: datetime) -> datetime:
+    """Return the start of the next H1 candle after dt."""
+    from datetime import timedelta
+    return dt.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
 def _check_reentry_cooldown(
@@ -211,42 +185,38 @@ def _check_reentry_cooldown(
     session_name: str, base_min_conf: float,
 ) -> tuple[bool, float]:
     """
-    Adaptive re-entry guard after trade close.
+    H1-candle re-entry cooldown: wait until the next H1 candle opens.
+    New candle = fresh structure data, so cooldown resets naturally.
+
     Returns (allowed, effective_min_confidence).
-    - Same zone + same direction → BLOCKED (stale setup)
-    - Same direction, different zone → require higher confidence
+    - Same zone + same direction → BLOCKED until next H1
+    - Same direction, different zone → elevated confidence until next H1
     - Different direction → allowed (fresh reversal signal)
     """
     if _last_close_info is None:
         return True, base_min_conf
 
-    elapsed = (datetime.now(timezone.utc) - _last_close_info["time"]).total_seconds() / 60
-    cooldown = _calc_adaptive_cooldown(_last_close_info["pnl_pts"], atr, session_name)
+    now = datetime.now(timezone.utc)
+    next_h1 = _next_h1_boundary(_last_close_info["time"])
 
-    if elapsed >= cooldown:
-        return True, base_min_conf  # cooldown expired
+    if now >= next_h1:
+        return True, base_min_conf  # new H1 candle, cooldown expired
 
+    remaining = (next_h1 - now).total_seconds() / 60
     same_dir = direction == _last_close_info["direction"]
     same_zone = zone_type == _last_close_info.get("zone_type")
-    remaining = cooldown - elapsed
 
     if same_dir and same_zone:
-        # BLOCKED: identical stale setup, need fresh H1 structure
         logger.info(
-            f"  Skip {direction} — re-entry cooldown {remaining:.0f}min left | "
-            f"same zone {zone_type} (need fresh H1 candle)"
-        )
-        logger.bind(kind="MARKET").debug(
-            f"  SKIP {direction} | reason=reentry_cooldown({remaining:.0f}min) | "
-            f"same_zone={zone_type}"
+            f"  Skip {direction} — H1 cooldown {remaining:.0f}min left | "
+            f"same zone {zone_type} (wait for next H1 candle)"
         )
         return False, 0
 
     if same_dir:
-        # Different zone but same direction: allow with elevated confidence
         elevated = max(base_min_conf, 0.80)
         logger.info(
-            f"  Re-entry cooldown ({remaining:.0f}min left) — "
+            f"  H1 cooldown ({remaining:.0f}min left) — "
             f"different zone, min_conf raised {base_min_conf:.2f}→{elevated:.2f}"
         )
         return True, elevated
