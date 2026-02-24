@@ -175,6 +175,73 @@ def detect_bos(df: pd.DataFrame, lookback: int = 5) -> list[dict]:
     return zones[-8:]
 
 
+# ── CHoCH Detection ──────────────────────────────────────────────────────────
+
+def detect_choch(df: pd.DataFrame, lookback: int = 5) -> list[dict]:
+    """
+    Detect Change of Character (CHoCH) — counter-trend BOS signaling reversal.
+    Bull CHoCH: bearish trend (descending swing lows), then close breaks above recent swing high.
+    Bear CHoCH: bullish trend (ascending swing highs), then close breaks below recent swing low.
+    Returns up to 4 most recent CHoCH zones.
+    """
+    zones = []
+    if len(df) < lookback * 3:
+        return zones
+
+    highs = df["high"].values
+    lows = df["low"].values
+    closes = df["close"].values
+    times = df["time"].values if "time" in df.columns else [None] * len(df)
+
+    swing_highs, swing_lows = _swing_points(highs, lows, lookback)
+
+    # Bull CHoCH: last 2 swing lows descending (bearish trend), then close > recent swing high
+    if len(swing_lows) >= 2 and len(swing_highs) >= 1:
+        sl1_idx, sl1_val = swing_lows[-2]
+        sl2_idx, sl2_val = swing_lows[-1]
+        if sl2_val < sl1_val:  # descending swing lows = bearish trend
+            # Find most recent swing high after the older swing low
+            recent_sh = [(i, v) for i, v in swing_highs if i > sl1_idx]
+            if recent_sh:
+                sh_idx, sh_val = recent_sh[-1]
+                # Check if any recent candle broke above this swing high
+                for i in range(max(sh_idx + 1, len(df) - lookback * 2), len(df)):
+                    if closes[i] > sh_val:
+                        zones.append({
+                            "type": "CHOCH_BULL",
+                            "low": None,
+                            "high": None,
+                            "level": sh_val,
+                            "detected_at": str(times[i]) if times[i] is not None else "",
+                            "source": "detector",
+                        })
+                        break
+
+    # Bear CHoCH: last 2 swing highs ascending (bullish trend), then close < recent swing low
+    if len(swing_highs) >= 2 and len(swing_lows) >= 1:
+        sh1_idx, sh1_val = swing_highs[-2]
+        sh2_idx, sh2_val = swing_highs[-1]
+        if sh2_val > sh1_val:  # ascending swing highs = bullish trend
+            # Find most recent swing low after the older swing high
+            recent_sl = [(i, v) for i, v in swing_lows if i > sh1_idx]
+            if recent_sl:
+                sl_idx, sl_val = recent_sl[-1]
+                # Check if any recent candle broke below this swing low
+                for i in range(max(sl_idx + 1, len(df) - lookback * 2), len(df)):
+                    if closes[i] < sl_val:
+                        zones.append({
+                            "type": "CHOCH_BEAR",
+                            "low": None,
+                            "high": None,
+                            "level": sl_val,
+                            "detected_at": str(times[i]) if times[i] is not None else "",
+                            "source": "detector",
+                        })
+                        break
+
+    return zones[-4:]
+
+
 # ── Main Detection Entry Point ───────────────────────────────────────────────
 
 def detect_all_zones(
@@ -191,12 +258,14 @@ def detect_all_zones(
     zones.extend(detect_fvg(df_h1, min_fvg_gap))
     zones.extend(detect_ob(df_h1, ob_impulse_mult))
     zones.extend(detect_bos(df_h1, bos_lookback))
+    zones.extend(detect_choch(df_h1, bos_lookback))
 
     logger.debug(
         f"Zone detector: {len(zones)} zones "
         f"(FVG={sum(1 for z in zones if 'FVG' in z['type'])}, "
         f"OB={sum(1 for z in zones if 'OB' in z['type'])}, "
-        f"BOS={sum(1 for z in zones if 'BOS' in z['type'])})"
+        f"BOS={sum(1 for z in zones if 'BOS' in z['type'])}, "
+        f"CHoCH={sum(1 for z in zones if 'CHOCH' in z['type'])})"
     )
     return zones
 

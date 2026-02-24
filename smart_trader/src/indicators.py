@@ -177,6 +177,39 @@ def h4_bias(df_h4: pd.DataFrame, lookback: int = 20) -> str:
     return "RANGING"
 
 
+def daily_range_consumed(df_h1: pd.DataFrame, threshold: float = 1.20) -> bool:
+    """
+    Check if today's price range already exceeds threshold × average daily range.
+    Post-impulse filter: skip entry when daily range is exhausted.
+    """
+    if len(df_h1) < 48:  # need at least 2 days of H1 data
+        return False
+
+    # Approximate today's range from last ~24 H1 candles
+    today = df_h1.tail(24)
+    today_range = float(today["high"].max() - today["low"].min())
+
+    # Average daily range from prior bars (approx: rolling 24-bar windows)
+    prior = df_h1.iloc[:-24]
+    if len(prior) < 24:
+        return False
+    # Simple avg: total range / number of days
+    total_bars = len(prior)
+    n_days = max(1, total_bars // 24)
+    daily_ranges = []
+    for d in range(n_days):
+        start = d * 24
+        end = min(start + 24, total_bars)
+        chunk = prior.iloc[start:end]
+        if len(chunk) >= 12:
+            daily_ranges.append(float(chunk["high"].max() - chunk["low"].min()))
+    if not daily_ranges:
+        return False
+
+    avg_daily = sum(daily_ranges) / len(daily_ranges)
+    return today_range > avg_daily * threshold
+
+
 def count_signals(
     direction: str,
     zones_hit: list[str],

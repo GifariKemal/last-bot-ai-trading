@@ -27,6 +27,7 @@ MARKET SNAPSHOT:
 Price: {price} | Spread: {spread}pt | ATR: {atr:.1f}pt
 Session: {session} | H1: {h1_structure} | EMA(50): {ema_trend}
 RSI(14): {rsi:.1f} | P/D: {pd_zone}
+Regime: {regime} ({regime_confidence:.0%} confidence){choch_note}
 
 PROPOSED TRADE:
 Direction: {direction}
@@ -64,6 +65,12 @@ def build_prompt(setup: dict) -> str:
         lines = context.split("\n")
         context = "\n".join(lines[-4:])  # Keep last 4 lines
 
+    # Regime fields (optional — absent for legacy callers)
+    regime = setup.get("regime", "UNKNOWN")
+    regime_confidence = setup.get("regime_confidence", 0.0)
+    has_choch = setup.get("has_choch", False)
+    choch_note = "\n** CHoCH DETECTED — potential reversal, counter-trend valid **" if has_choch else ""
+
     return _PROMPT_TEMPLATE.format(
         price       = setup["price"],
         spread      = setup.get("spread", 0),
@@ -73,6 +80,9 @@ def build_prompt(setup: dict) -> str:
         ema_trend   = setup.get("ema_trend", "NEUTRAL"),
         rsi         = setup.get("rsi", 50),
         pd_zone     = setup.get("pd_zone", "EQUILIBRIUM"),
+        regime      = regime,
+        regime_confidence = regime_confidence,
+        choch_note  = choch_note,
         direction   = setup["direction"],
         zone_type   = setup.get("zone_type", "ZONE"),
         zone_level  = setup.get("zone_level", setup["price"]),
@@ -267,7 +277,7 @@ THINK LIKE THE MASTERS:
 
 MARKET NOW:
 Price: {price} | ATR: {atr:.1f}pt | Session: {session} | EMA(50): {ema_trend}
-RSI(14): {rsi:.1f} | P/D: {pd_zone}
+RSI(14): {rsi:.1f} | P/D: {pd_zone} | Regime: {regime}
 Nearby signals: {nearby_signals}
 
 OPEN POSITION:
@@ -280,10 +290,10 @@ RULES (mandatory):
 - TAKE_PROFIT only when profit is above 15pt AND momentum clearly reversing:
   * LONG: RSI dropping from above 70, or price broke below EMA(50)
   * SHORT: RSI rising from below 30, or price broke above EMA(50)
-- TIGHTEN when profit is above 8pt and momentum weakening but not reversing yet.
+- TIGHTEN when profit is above 15pt and momentum weakening but not reversing yet.
   * Move SL to lock at least 50% of current profit.
 - If UNDERWATER (P/L negative): ALWAYS HOLD. Never close at a loss.
-- If profit is below 8pt: ALWAYS HOLD. Let the trade develop.
+- If profit is below 15pt: ALWAYS HOLD. Let the trade develop.
 - If EMA trend matches direction and RSI is not extreme: HOLD.
 
 Respond ONLY with valid JSON (no markdown):
@@ -295,7 +305,10 @@ OR {{"action":"TIGHTEN","new_sl":{tighten_sl:.2f},"reason":"<15 words"}}
 
 def build_exit_prompt(pos_data: dict) -> str:
     """Build compact exit review prompt."""
-    return _EXIT_PROMPT_TEMPLATE.format(**pos_data)
+    # Ensure regime field exists (optional for backward compat)
+    data = dict(pos_data)
+    data.setdefault("regime", "UNKNOWN")
+    return _EXIT_PROMPT_TEMPLATE.format(**data)
 
 
 def _validate_exit_response(r: dict) -> None:

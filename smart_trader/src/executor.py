@@ -108,7 +108,7 @@ _scratched_tickets: set[int] = set()  # prevent repeat scratch attempts
 _bot_closed_tickets: set[int] = set()  # tickets closed by bot (scratch/claude/etc)
 
 
-def manage_positions(symbol: str, cfg: dict) -> None:
+def manage_positions(symbol: str, cfg: dict, exit_params: dict = None) -> None:
     """
     Multi-stage exit management for all open positions.
     Stage 0: Scratch exit (flat after 60min)
@@ -116,6 +116,8 @@ def manage_positions(symbol: str, cfg: dict) -> None:
     Stage 1: Move SL to BE at 0.7×SL profit
     Stage 2: Partial close 50% (or profit-lock SL) at 1.5×SL profit
     Stage 3: RR-based trailing stop on remainder (50% of peak profit)
+
+    exit_params: optional adaptive params dict overriding module constants.
     """
     positions = mt5c.get_positions(symbol)
     if not positions:
@@ -131,10 +133,10 @@ def manage_positions(symbol: str, cfg: dict) -> None:
         # Only manage OUR positions
         if pos.get("_raw") and pos["_raw"].magic != cfg.get("magic", 202602):
             continue
-        _manage_one(pos, price_info, cfg, now)
+        _manage_one(pos, price_info, cfg, now, exit_params)
 
 
-def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime) -> None:
+def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_params: dict = None) -> None:
     ticket    = pos["ticket"]
     direction = pos["type"]       # "LONG" or "SHORT"
     entry     = pos["price_open"]
@@ -144,6 +146,14 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime) -> None:
     symbol    = pos["symbol"]
 
     price = price_info["mid"]
+
+    # Resolve adaptive exit params (fallback to module constants)
+    _ep = exit_params or {}
+    _be_mult    = _ep.get("be_trigger_mult", BE_TRIGGER_MULT)
+    _lock_mult  = _ep.get("lock_trigger_mult", LOCK_TRIGGER_MULT)
+    _trail_pct  = _ep.get("trail_keep_pct", TRAIL_KEEP_PCT)
+    _stale_min  = _ep.get("stale_tighten_min", STALE_TIGHTEN_MIN)
+    _scratch_min = _ep.get("scratch_exit_min", SCRATCH_EXIT_MIN)
 
     # SL distance from entry (original)
     sl_dist = abs(entry - current_sl)
@@ -162,9 +172,9 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime) -> None:
     else:
         age_min = 0
 
-    # ── Stage 0: Scratch exit (flat after 60min) ────────────────────────────
+    # ── Stage 0: Scratch exit (flat after scratch_exit_min) ──────────────────
     if (ticket not in _scratched_tickets
-            and age_min >= SCRATCH_EXIT_MIN
+            and age_min >= _scratch_min
             and abs(profit_pts) < SCRATCH_FLAT_PTS
             and _sl_is_below_entry(direction, current_sl, entry)):
         # Close at ~breakeven rather than wait for SL
@@ -192,8 +202,8 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime) -> None:
             )
         return
 
-    # ── Stage 0b: Time-based SL tighten (stale after 90min) ────────────────
-    if (age_min >= STALE_TIGHTEN_MIN
+    # ── Stage 0b: Time-based SL tighten (stale after _stale_min) ────────────
+    if (age_min >= _stale_min
             and profit_pts < sl_dist * STALE_PROGRESS_MULT
             and _sl_is_below_entry(direction, current_sl, entry)):
         # Reduce max loss: move SL to half of original distance
@@ -231,8 +241,8 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime) -> None:
                     )
                 current_sl = new_sl
 
-    # ── Stage 1: Break-even at 0.7×SL ──────────────────────────────────────
-    be_trigger = sl_dist * BE_TRIGGER_MULT
+    # ── Stage 1: Break-even at _be_mult×SL ──────────────────────────────────
+    be_trigger = sl_dist * _be_mult
     if profit_pts >= be_trigger and _sl_is_below_entry(direction, current_sl, entry):
         new_sl = entry + 0.2 if direction == "LONG" else entry - 0.2  # tiny buffer
         logger.bind(kind="TRADE").info(
@@ -252,8 +262,8 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime) -> None:
             )
         current_sl = new_sl  # update local for stage 2 check
 
-    # ── Stage 2: Partial close / profit lock at 1.5×SL ───────────────────────
-    lock_trigger = sl_dist * LOCK_TRIGGER_MULT
+    # ── Stage 2: Partial close / profit lock at _lock_mult×SL ─────────────────
+    lock_trigger = sl_dist * _lock_mult
     lock_comment = pos.get("comment", "")
     if profit_pts >= lock_trigger and "locked" not in lock_comment:
         if volume > 0.01:
@@ -301,7 +311,7 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime) -> None:
                     )
 
     # ── Stage 3: RR-based trailing stop ──────────────────────────────────────
-    _rr_trail(pos, price_info, sl_dist, direction, symbol)
+    _rr_trail(pos, price_info, sl_dist, direction, symbol, trail_keep_pct=_trail_pct)
 
 
 def _sl_is_below_entry(direction: str, sl: float, entry: float) -> bool:
@@ -311,8 +321,9 @@ def _sl_is_below_entry(direction: str, sl: float, entry: float) -> bool:
     return sl > entry
 
 
-def _rr_trail(pos: dict, price_info: dict, sl_dist: float, direction: str, symbol: str) -> None:
-    """RR-based trailing: SL = price - 50% of profit as cushion."""
+def _rr_trail(pos: dict, price_info: dict, sl_dist: float, direction: str, symbol: str, trail_keep_pct: float = None) -> None:
+    """RR-based trailing: SL = price - trail_keep_pct of profit as cushion."""
+    _trail_pct = trail_keep_pct if trail_keep_pct is not None else TRAIL_KEEP_PCT
     ticket  = pos["ticket"]
     entry   = pos["price_open"]
     cur_sl  = pos["sl"]
@@ -320,7 +331,7 @@ def _rr_trail(pos: dict, price_info: dict, sl_dist: float, direction: str, symbo
     price   = price_info["mid"]
 
     profit_pts = (price - entry) if direction == "LONG" else (entry - price)
-    trail_sl_dist = profit_pts * TRAIL_KEEP_PCT
+    trail_sl_dist = profit_pts * _trail_pct
 
     # Only activate when trail distance > activation threshold
     if trail_sl_dist < sl_dist * TRAIL_ACTIVATE_PCT:
@@ -435,7 +446,7 @@ def review_positions_with_claude(
         tp_remaining = abs(tp - price)
 
         # Suggested tighten SL (lock 60% of current profit)
-        if pnl_pts > 5:
+        if pnl_pts > 15:
             if direction == "LONG":
                 tighten_sl = round(entry + pnl_pts * 0.6, 2)
             else:
@@ -484,8 +495,8 @@ def review_positions_with_claude(
         est_tokens = metrics["est_input_tokens"] + metrics["est_output_tokens"]
 
         if action == "TAKE_PROFIT":
-            # Only close if actually in profit
-            if pnl_pts > 3:
+            # Only close if profit exceeds minimum threshold
+            if pnl_pts > 15:
                 logger.bind(kind="TRADE").info(
                     f"CLAUDE TAKE PROFIT | ticket={ticket} | +{pnl_pts:.1f}pt — {reason} "
                     f"| {latency_s:.1f}s | ~{est_tokens} tokens"
@@ -507,11 +518,12 @@ def review_positions_with_claude(
                         claude_tokens=est_tokens,
                     )
             else:
-                logger.info(f"  TAKE_PROFIT ignored — only {pnl_pts:+.1f}pt (need >3pt)")
+                logger.info(f"  TAKE_PROFIT ignored — only {pnl_pts:+.1f}pt (need >15pt)")
 
         elif action == "TIGHTEN":
-            new_sl = response.get("new_sl", 0)
-            if new_sl > 0:
+            if pnl_pts < 15:
+                logger.info(f"  TIGHTEN ignored — only {pnl_pts:+.1f}pt (need >15pt)")
+            elif (new_sl := response.get("new_sl", 0)) > 0:
                 # Validate: new SL must be tighter (better) than current
                 valid = (direction == "LONG" and new_sl > sl) or \
                         (direction == "SHORT" and new_sl < sl)

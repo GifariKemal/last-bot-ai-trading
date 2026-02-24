@@ -40,6 +40,9 @@ import console_format as cfmt
 import logger_config
 import telegram_notifier as tg
 import llm_comparator as llm_cmp
+import regime_detector as rdet
+import trade_tracker as tt
+import adaptive_engine as ae
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -98,6 +101,11 @@ _session_trades: int = 0  # entries placed this session
 _tracked_positions: dict[int, dict] = {}
 _last_close_info: Optional[dict] = None    # {time, direction, zone_type, pnl_pts, entry_price}
 _last_entry_zone_type: Optional[str] = None  # zone type of most recent entry
+
+# ── Adaptive system modules (initialized in main()) ─────────────────────────
+_regime_det: Optional[rdet.RegimeDetector] = None
+_tracker: Optional[tt.TradeTracker] = None
+_adaptive: Optional[ae.AdaptiveEngine] = None
 
 
 def _zone_key(zone: dict, direction: str) -> str:
@@ -267,15 +275,26 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
     for t in bot_closed:
         info = _tracked_positions.pop(t, None)
         if info:
-            cp, _ = mt5c.get_deal_close_info(t)
+            cp, pnl_usd = mt5c.get_deal_close_info(t, magic=magic)
             entry, d = info["entry"], info["direction"]
+            pnl_pts = ((cp - entry) if d == "LONG" else (entry - cp)) if cp else 0
             _last_close_info = {
                 "time": now,
                 "direction": d,
                 "zone_type": _last_entry_zone_type,
-                "pnl_pts": ((cp - entry) if d == "LONG" else (entry - cp)) if cp else 0,
+                "pnl_pts": pnl_pts,
                 "entry_price": entry,
             }
+            # Record in adaptive tracker
+            if _tracker:
+                age = (now - info["time_open"]).total_seconds() / 60 if info.get("time_open") else 0
+                _tracker.record_exit(t, {
+                    "exit_price": cp, "pnl_pts": pnl_pts,
+                    "pnl_usd": pnl_usd or 0, "close_type": "bot_closed",
+                    "duration_min": age,
+                })
+                if _adaptive:
+                    _adaptive.update_from_performance(_tracker)
     exe.clear_bot_closed_tickets()
 
     for ticket in disappeared:
@@ -288,7 +307,7 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
 
         # Estimate close price and type based on last known SL/TP
         # Check deal history from MT5 for exact close price
-        close_price, pnl_usd = mt5c.get_deal_close_info(ticket)
+        close_price, pnl_usd = mt5c.get_deal_close_info(ticket, magic=magic)
 
         if close_price is None:
             # Fallback: estimate from last SL (most likely scenario)
@@ -368,6 +387,16 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
             "last_tp":     last_tp,
         })
 
+        # ── Record in adaptive tracker ─────────────────────────────────────────
+        if _tracker:
+            _tracker.record_exit(ticket, {
+                "exit_price": close_price, "pnl_pts": pnl_pts,
+                "pnl_usd": pnl_usd, "close_type": close_type,
+                "duration_min": age_min,
+            })
+            if _adaptive:
+                _adaptive.update_from_performance(_tracker)
+
         # ── Record for adaptive re-entry cooldown ─────────────────────────────
         _last_close_info = {
             "time": now,
@@ -443,8 +472,16 @@ def run_scan_cycle(cfg: dict) -> None:
     ema_trend = ind.h1_ema_trend(df_h1)
     session   = scan.current_session(now_utc)
 
-    # ── Manage existing positions ─────────────────────────────────────────────
-    exe.manage_positions(symbol, cfg.get("mt5", {}))
+    # ── Regime detection ──────────────────────────────────────────────────────
+    regime_result = _regime_det.detect(df_h1) if _regime_det else rdet.RegimeDetector._default_result()
+    regime = regime_result["regime"]
+    regime_cat = regime.category
+    regime_label = regime_result["short_label"]
+    has_choch = regime_result["components"].get("has_choch", False)
+
+    # ── Manage existing positions (with adaptive exit params) ─────────────────
+    exit_params = _adaptive.get_exit_params(regime_cat) if _adaptive else None
+    exe.manage_positions(symbol, cfg.get("mt5", {}), exit_params=exit_params)
 
     # ── Common status line (reused across log messages) ────────────────────────
     spread_val = price_info.get("spread", 0)
@@ -452,12 +489,17 @@ def run_scan_cycle(cfg: dict) -> None:
     status_line = (
         f"Price={price:.2f} | Spread={spread_val:.1f} | RSI={rsi_val:.0f} | "
         f"ATR={atr_val:.1f} | EMA={ema_trend} | P/D={pd_zone} | "
-        f"H4={h4_bias} | {session['name']} | Pos={len(our_pos)}"
+        f"H4={h4_bias} | {session['name']} | Regime={regime_label} | Pos={len(our_pos)}"
     )
 
     # ── Session guard: no new entries during OFF_HOURS ─────────────────────────
     if session["name"] == "OFF_HOURS":
         logger.info(f"[{wib_str}] OFF_HOURS — {status_line}")
+        return
+
+    # ── Post-impulse filter (daily range exhausted) ──────────────────────────
+    if ind.daily_range_consumed(df_h1, 1.20):
+        logger.info(f"[{wib_str}] {status_line} | Daily range exhausted — skip entry")
         return
 
     # ── Zone scan (dual source: detector + cache) ──────────────────────────────
@@ -560,18 +602,28 @@ def run_scan_cycle(cfg: dict) -> None:
             continue
 
         # ── Trend filter: don't trade against H1 EMA trend ──────────────
+        # CHoCH override: allow counter-trend if CHoCH detected + regime is reversal/ranging
+        zone_has_choch = any("CHOCH" in s.upper() for s in signals)
+        choch_detected = has_choch or zone_has_choch
         if direction == "SHORT" and ema_trend == "BULLISH":
-            logger.info(f"  Skip SHORT — H1 EMA trend is BULLISH (counter-trend)")
-            logger.bind(kind="MARKET").debug(f"  SKIP SHORT | reason=EMA_counter_trend(BULLISH)")
-            continue
+            if _adaptive and _adaptive.should_allow_counter_trend(choch_detected, regime_cat):
+                logger.info(f"  CHoCH override: allowing SHORT despite BULLISH EMA (regime={regime_label})")
+            else:
+                logger.info(f"  Skip SHORT — H1 EMA trend is BULLISH (counter-trend)")
+                logger.bind(kind="MARKET").debug(f"  SKIP SHORT | reason=EMA_counter_trend(BULLISH)")
+                continue
         if direction == "LONG" and ema_trend == "BEARISH":
-            logger.info(f"  Skip LONG — H1 EMA trend is BEARISH (counter-trend)")
-            logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=EMA_counter_trend(BEARISH)")
-            continue
+            if _adaptive and _adaptive.should_allow_counter_trend(choch_detected, regime_cat):
+                logger.info(f"  CHoCH override: allowing LONG despite BEARISH EMA (regime={regime_label})")
+            else:
+                logger.info(f"  Skip LONG — H1 EMA trend is BEARISH (counter-trend)")
+                logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=EMA_counter_trend(BEARISH)")
+                continue
 
         # ── Adaptive re-entry cooldown ────────────────────────────────────
+        base_min_conf = entry_params.get("min_confidence", min_conf) if _adaptive else min_conf
         reentry_ok, effective_min_conf = _check_reentry_cooldown(
-            direction, zone.get("type", ""), atr_val, session["name"], min_conf,
+            direction, zone.get("type", ""), atr_val, session["name"], base_min_conf,
         )
         if not reentry_ok:
             continue
@@ -584,12 +636,28 @@ def run_scan_cycle(cfg: dict) -> None:
             logger.info(f"  Skip {direction} — {risk_msg}")
             continue
 
-        # ── Build SL/TP ───────────────────────────────────────────────────────
+        # ── Algo pre-score before Claude call ──────────────────────────────
+        if _adaptive:
+            pre_score, should_call = _adaptive.algo_pre_score(
+                signal_count, regime_cat, session["name"], direction,
+                ema_trend, rsi_val, pd_zone, choch_detected,
+            )
+            if not should_call:
+                logger.info(f"  Pre-score {pre_score:.2f} < 0.35 — skip Claude call")
+                _attempted_zones.add(zkey)
+                continue
+        else:
+            pre_score = 0.50
+
+        # ── Build SL/TP (adaptive regime params) ──────────────────────────────
         if atr_val <= 0:
             atr_val = 15.0  # fallback
 
-        sl_dist = atr_val * sl_mult
-        tp_dist = atr_val * tp_mult
+        entry_params = _adaptive.get_entry_params(regime_cat) if _adaptive else {}
+        sl_mult_eff = entry_params.get("sl_atr_mult", sl_mult)
+        tp_mult_eff = entry_params.get("tp_atr_mult", tp_mult)
+        sl_dist = atr_val * sl_mult_eff
+        tp_dist = atr_val * tp_mult_eff
 
         if direction == "LONG":
             sl = round(price - sl_dist, 2)
@@ -624,6 +692,11 @@ def run_scan_cycle(cfg: dict) -> None:
             "ema_trend":    ema_trend,
             "rsi":          rsi_val,
             "pd_zone":      pd_zone,
+            "regime":             regime_label,
+            "regime_category":    regime_cat,
+            "regime_confidence":  regime_result["confidence"],
+            "has_choch":          choch_detected,
+            "pre_score":          pre_score,
             "direction":    direction,
             "zone_type":    zone.get("type"),
             "zone_level":   zone.get("level") or zone.get("high", price),
@@ -718,6 +791,26 @@ def run_scan_cycle(cfg: dict) -> None:
                 "signals":    ", ".join(signals),
                 "rr":         rr,
             })
+            # ── Record in adaptive trade tracker ──────────────────────────
+            if _tracker:
+                _tracker.record_entry(ticket, {
+                    "direction": decision,
+                    "entry_price": result["price"],
+                    "sl": exec_sl,
+                    "tp": exec_tp,
+                    "lot": setup["lot"],
+                    "zone_type": zone.get("type"),
+                    "signals": signals,
+                    "signal_count": signal_count,
+                    "confidence": confidence,
+                    "claude_reason": reason,
+                    "session": session["name"],
+                    "regime": regime_label,
+                    "ema_trend": ema_trend,
+                    "rsi": rsi_val,
+                    "atr": atr_val,
+                    "pd_zone": pd_zone,
+                })
             logger.info(
                 f"  ORDER FILLED | ticket={ticket} | {decision} @ {result['price']:.2f} | "
                 f"SL={exec_sl:.2f} | TP={exec_tp:.2f} | lot={setup['lot']:.2f} | "
@@ -917,6 +1010,12 @@ def _run_exit_review(cfg: dict) -> None:
     zone_types = [z["type"] for z in all_zones[:8]]
     nearby_str = ", ".join(zone_types) if zone_types else "none"
 
+    # Detect regime for exit review context
+    _exit_regime_label = "UNKNOWN"
+    if _regime_det and not df_h1.empty:
+        _exit_regime_result = _regime_det.detect(df_h1)
+        _exit_regime_label = _exit_regime_result["short_label"]
+
     market_data = {
         "atr":             atr_val,
         "rsi":             rsi_val,
@@ -924,6 +1023,7 @@ def _run_exit_review(cfg: dict) -> None:
         "ema_trend":       ema_trend,
         "session":         session["name"],
         "nearby_signals":  nearby_str,
+        "regime":          _exit_regime_label,
     }
 
     exe.review_positions_with_claude(
@@ -956,8 +1056,9 @@ def main():
         f"Proximity: {_cfg.get('trading', {}).get('zone_proximity_pts', 5.0)}pt | "
         f"Min Signals: 3 | Min Conf: {_cfg.get('trading', {}).get('min_confidence', 0.70)} | "
         f"Max Pos: {_cfg.get('trading', {}).get('max_positions', 1)} | "
-        f"SL: {_cfg.get('trading', {}).get('sl_atr_mult', 3.0)}x ATR | "
-        f"TP: {_cfg.get('trading', {}).get('tp_atr_mult', 5.0)}x ATR"
+        f"SL: {_cfg.get('trading', {}).get('sl_atr_mult', 2.0)}x ATR | "
+        f"TP: {_cfg.get('trading', {}).get('tp_atr_mult', 4.0)}x ATR | "
+        f"Adaptive: {_cfg.get('adaptive', {}).get('enabled', False)}"
     )
     logger.info("=" * 60)
 
@@ -973,6 +1074,22 @@ def main():
 
     # ── Warmup: restore cooldown state from deal history ──────────────────────
     _warmup_cooldown_from_history(magic=account_cfg.get("magic", 202602))
+
+    # ── Initialize adaptive system modules ──────────────────────────────────
+    global _regime_det, _tracker, _adaptive
+    adaptive_cfg = _cfg.get("adaptive", {})
+    _regime_det = rdet.RegimeDetector(lookback=50)
+    _tracker = tt.TradeTracker(state_path="data/trade_history.json")
+    _adaptive = ae.AdaptiveEngine(
+        config_baselines=adaptive_cfg.get("regime_params"),
+        bounds={k: tuple(v) for k, v in adaptive_cfg.get("bounds", {}).items()} if adaptive_cfg.get("bounds") else None,
+        state_path="data/adaptive_state.json",
+        min_trades=adaptive_cfg.get("min_trades_for_adaptation", 20),
+        max_shift_pct=adaptive_cfg.get("max_shift_pct", 0.25),
+    )
+    logger.info(
+        f"Adaptive system initialized | regime_detector | trade_tracker | adaptive_engine"
+    )
 
     # ── Initialize Telegram notifier ──────────────────────────────────────────
     tg_cfg = _cfg.get("telegram", {})
@@ -1009,7 +1126,7 @@ def main():
     tg_interval_min = tg_cfg.get("scan_report_interval_min", 30)
     cycle = 0
 
-    exit_review_interval = 10  # every 10 cycles = ~5 min
+    exit_review_interval = 20  # every 20 cycles = ~10 min
 
     _reconnect_failures = 0
     try:

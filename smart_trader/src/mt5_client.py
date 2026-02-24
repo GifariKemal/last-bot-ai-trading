@@ -235,7 +235,7 @@ def modify_sl_tp(ticket: int, sl: float, tp: float) -> bool:
     return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE
 
 
-def get_deal_close_info(position_ticket: int) -> tuple:
+def get_deal_close_info(position_ticket: int, magic: int = 202602) -> tuple:
     """
     Look up the closing deal for a position from MT5 deal history.
     Returns (close_price, pnl_usd) or (None, None) if not found.
@@ -253,8 +253,8 @@ def get_deal_close_info(position_ticket: int) -> tuple:
             logger.info(f"deal_close({position_ticket}): no deals in last 7 days")
             return None, None
 
-        # Manual filter: only deals with matching position_id
-        matched = [d for d in all_deals if d.position_id == position_ticket]
+        # Manual filter: only deals with matching position_id AND magic number
+        matched = [d for d in all_deals if d.position_id == position_ticket and d.magic == magic]
         if not matched:
             logger.info(
                 f"deal_close({position_ticket}): no deals with position_id match "
