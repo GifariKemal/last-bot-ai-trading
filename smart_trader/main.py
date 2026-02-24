@@ -2,9 +2,9 @@
 Smart Trader — main orchestrator loop.
 
 Architecture:
-  Python  →  fetch MT5 data, calculate indicators, scan zones, pre-filter
-  Claude  →  validate setup (compact ~600c prompt, no MCP, ~20-30s response)
-  Python  →  execute order, manage positions (BE / lock / trail)
+  Python  ->  fetch MT5 data, calculate indicators, scan zones, pre-filter
+  Claude  ->  validate setup (compact ~600c prompt, no MCP, ~20-30s response)
+  Python  ->  execute order, manage positions (BE / lock / trail)
 
 Run:
   cd smart_trader && python main.py
@@ -91,7 +91,7 @@ def log_trade(event: str, data: dict) -> None:
 
 # ── Already-attempted guard ───────────────────────────────────────────────────
 
-_attempted_zones: set[str] = set()  # zone_key → block re-entry same cycle
+_attempted_zones: set[str] = set()  # zone_key -> block re-entry same cycle
 _last_scan_report: Optional[datetime] = None  # last heartbeat Telegram report
 _last_market_closed_log: Optional[datetime] = None  # throttle market-closed log
 _session_trades: int = 0  # entries placed this session
@@ -198,9 +198,9 @@ def _check_reentry_cooldown(
     New candle = fresh structure data, so cooldown resets naturally.
 
     Returns (allowed, effective_min_confidence).
-    - Same zone + same direction → BLOCKED until next H1
-    - Same direction, different zone → elevated confidence until next H1
-    - Different direction → allowed (fresh reversal signal)
+    - Same zone + same direction -> BLOCKED until next H1
+    - Same direction, different zone -> elevated confidence until next H1
+    - Different direction -> allowed (fresh reversal signal)
     """
     if _last_close_info is None:
         return True, base_min_conf
@@ -226,7 +226,7 @@ def _check_reentry_cooldown(
         elevated = max(base_min_conf, 0.80)
         logger.info(
             f"  H1 cooldown ({remaining:.0f}min left) — "
-            f"different zone, min_conf raised {base_min_conf:.2f}→{elevated:.2f}"
+            f"different zone, min_conf raised {base_min_conf:.2f}->{elevated:.2f}"
         )
         return True, elevated
 
@@ -621,7 +621,8 @@ def run_scan_cycle(cfg: dict) -> None:
                 continue
 
         # ── Adaptive re-entry cooldown ────────────────────────────────────
-        base_min_conf = entry_params.get("min_confidence", min_conf) if _adaptive else min_conf
+        _ep = _adaptive.get_entry_params(regime_cat) if _adaptive else {}
+        base_min_conf = _ep.get("min_confidence", min_conf) if _adaptive else min_conf
         reentry_ok, effective_min_conf = _check_reentry_cooldown(
             direction, zone.get("type", ""), atr_val, session["name"], base_min_conf,
         )

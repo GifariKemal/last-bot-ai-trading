@@ -213,7 +213,7 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
             if new_sl > current_sl + 0.5:
                 logger.bind(kind="TRADE").info(
                     f"STALE TIGHTEN | ticket={ticket} | {age_min:.0f}min | "
-                    f"SL {current_sl:.2f}→{new_sl:.2f} (halved risk)"
+                    f"SL {current_sl:.2f}->{new_sl:.2f} (halved risk)"
                 )
                 mt5c.modify_sl_tp(ticket, new_sl, current_tp)
                 _notif = tg.get()
@@ -229,7 +229,7 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
             if new_sl < current_sl - 0.5:
                 logger.bind(kind="TRADE").info(
                     f"STALE TIGHTEN | ticket={ticket} | {age_min:.0f}min | "
-                    f"SL {current_sl:.2f}→{new_sl:.2f} (halved risk)"
+                    f"SL {current_sl:.2f}->{new_sl:.2f} (halved risk)"
                 )
                 mt5c.modify_sl_tp(ticket, new_sl, current_tp)
                 _notif = tg.get()
@@ -246,11 +246,11 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
     if profit_pts >= be_trigger and _sl_is_below_entry(direction, current_sl, entry):
         new_sl = entry + 0.2 if direction == "LONG" else entry - 0.2  # tiny buffer
         logger.bind(kind="TRADE").info(
-            f"BE | ticket={ticket} | SL {current_sl:.2f}→{new_sl:.2f}"
+            f"BE | ticket={ticket} | SL {current_sl:.2f}->{new_sl:.2f}"
         )
         logger.bind(kind="JOURNAL").info(
             f"MILESTONE | ticket={ticket} | {direction} | BE | "
-            f"pnl_pts={profit_pts:+.1f} | SL {current_sl:.2f}→{new_sl:.2f}"
+            f"pnl_pts={profit_pts:+.1f} | SL {current_sl:.2f}->{new_sl:.2f}"
         )
         mt5c.modify_sl_tp(ticket, new_sl, current_tp)
         _notif = tg.get()
@@ -295,11 +295,11 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
             if (direction == "LONG" and lock_sl > current_sl) or \
                (direction == "SHORT" and lock_sl < current_sl):
                 logger.bind(kind="TRADE").info(
-                    f"PROFIT LOCK | ticket={ticket} | SL {current_sl:.2f}→{lock_sl:.2f}"
+                    f"PROFIT LOCK | ticket={ticket} | SL {current_sl:.2f}->{lock_sl:.2f}"
                 )
                 logger.bind(kind="JOURNAL").info(
                     f"MILESTONE | ticket={ticket} | {direction} | PROFIT_LOCK | "
-                    f"pnl_pts={profit_pts:+.1f} | SL {current_sl:.2f}→{lock_sl:.2f}"
+                    f"pnl_pts={profit_pts:+.1f} | SL {current_sl:.2f}->{lock_sl:.2f}"
                 )
                 mt5c.modify_sl_tp(ticket, lock_sl, current_tp)
                 _notif = tg.get()
@@ -341,14 +341,14 @@ def _rr_trail(pos: dict, price_info: dict, sl_dist: float, direction: str, symbo
         new_sl = round(price - trail_sl_dist, 2)
         if new_sl > cur_sl + 0.5:  # only move if meaningful improvement
             logger.bind(kind="TRADE").info(
-                f"TRAIL | ticket={ticket} | SL {cur_sl:.2f}→{new_sl:.2f}"
+                f"TRAIL | ticket={ticket} | SL {cur_sl:.2f}->{new_sl:.2f}"
             )
             mt5c.modify_sl_tp(ticket, new_sl, cur_tp)
     else:
         new_sl = round(price + trail_sl_dist, 2)
         if new_sl < cur_sl - 0.5:
             logger.bind(kind="TRADE").info(
-                f"TRAIL | ticket={ticket} | SL {cur_sl:.2f}→{new_sl:.2f}"
+                f"TRAIL | ticket={ticket} | SL {cur_sl:.2f}->{new_sl:.2f}"
             )
             mt5c.modify_sl_tp(ticket, new_sl, cur_tp)
 
@@ -529,12 +529,12 @@ def review_positions_with_claude(
                         (direction == "SHORT" and new_sl < sl)
                 if valid:
                     logger.bind(kind="TRADE").info(
-                        f"CLAUDE TIGHTEN | ticket={ticket} | SL {sl:.2f}→{new_sl:.2f} — {reason} "
+                        f"CLAUDE TIGHTEN | ticket={ticket} | SL {sl:.2f}->{new_sl:.2f} — {reason} "
                         f"| {latency_s:.1f}s | ~{est_tokens} tokens"
                     )
                     logger.bind(kind="JOURNAL").info(
                         f"MILESTONE | ticket={ticket} | {direction} | CLAUDE_TIGHTEN | "
-                        f"pnl_pts={pnl_pts:+.1f} | SL {sl:.2f}→{new_sl:.2f} | {reason}"
+                        f"pnl_pts={pnl_pts:+.1f} | SL {sl:.2f}->{new_sl:.2f} | {reason}"
                     )
                     mt5c.modify_sl_tp(ticket, round(new_sl, 2), tp)
                     _notif = tg.get()
