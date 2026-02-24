@@ -32,9 +32,10 @@ _Comparative analysis of 3 broker candidates for automated XAUUSD trading_
 4. [Head-to-Head Comparison](#4-head-to-head-comparison)
 5. [Compatibility Analysis](#5-compatibility-analysis-with-smart-trader)
 6. [Cost Simulation](#6-cost-simulation-per-trade)
-7. [Final Verdict & Recommendation](#7-final-verdict--recommendation)
-8. [Migration Plan](#8-migration-plan)
-9. [Sources](#9-sources)
+7. [Privacy Policy & Data Security](#7-privacy-policy--data-security)
+8. [Final Verdict & Recommendation](#8-final-verdict--recommendation)
+9. [Migration Plan](#9-migration-plan)
+10. [Sources](#10-sources)
 
 ---
 
@@ -310,7 +311,93 @@ Simulasi biaya per trade dengan 0.01 lot XAUUSD:
 
 ---
 
-## 7. Final Verdict & Recommendation
+## 7. Privacy Policy & Data Security
+
+Analisa kebijakan privasi dan keamanan data masing-masing broker — penting untuk memastikan data pribadi dan aktivitas trading terlindungi.
+
+### 7.1 Exness — Privacy Score: 9/10
+
+| Aspek | Detail | Status |
+|---|---|---|
+| **Enkripsi** | SSL encryption pada semua komunikasi platform | Baik |
+| **Segregated Accounts** | Dana client terpisah dari dana operasional perusahaan | Baik |
+| **Two-Factor Auth** | 2FA tersedia via mobile app | Baik |
+| **KYC/AML** | Proof of identity + proof of address, AML compliance | Standar |
+| **Data Storage** | GDPR-level handling, data encrypted at rest | Baik |
+| **Data Retention** | Disimpan selama diperlukan sesuai regulasi | Standar |
+| **Regulasi Privacy** | CySEC (EU GDPR enforced) + FCA (UK Data Protection Act) | Sangat Baik |
+| **Red Flags** | Tidak ada | - |
+
+**Catatan:** Exness diregulasi oleh **FCA (UK)** dan **CySEC (EU)** — kedua regulator ini secara aktif menegakkan GDPR dan data protection laws. Ini adalah standar tertinggi dalam industri forex untuk perlindungan data trader.
+
+**Data yang dikumpulkan:**
+- Identitas pribadi (nama, DOB, alamat, kewarganegaraan)
+- Dokumen KYC (passport/ID, utility bill)
+- Informasi keuangan (sumber dana, bank account)
+- Trading activity dan transaction history
+- Device/browser information
+
+### 7.2 XM — Privacy Score: 8/10
+
+| Aspek | Detail | Status |
+|---|---|---|
+| **Enkripsi** | SSL encryption | Baik |
+| **GDPR Compliance** | Penuh — hak akses, koreksi, deletion tersedia | Baik |
+| **Data Collection** | Nama, alamat, DOB, income, trading history, bank info | Standar |
+| **Data Sharing** | Transfer ke XM Group companies + third-party processors | Perlu Perhatian |
+| **Cross-border Transfer** | Data bisa ditransfer ke luar EEA (dengan GDPR Art.46 safeguards) | Standar |
+| **Regulasi Privacy** | CySEC (GDPR), ASIC (Australian Privacy Act), IFSC | Baik |
+| **Communication Recording** | XM bisa merekam komunikasi (telepon, email, in-person) | Perlu Perhatian |
+| **Red Flags** | Data sharing ke affiliates di luar EEA — standar industri tapi perlu awareness | Minor |
+
+**Catatan:** XM secara eksplisit menyatakan bahwa mereka dapat mentransfer data personal ke **XM Group companies** dan **service providers** di luar European Economic Area. Ini adalah praktik standar industri, namun trader perlu aware bahwa data mereka bisa diproses di jurisdiksi dengan perlindungan privasi yang lebih lemah. XM mengklaim safeguards sesuai GDPR Article 46 (Standard Contractual Clauses).
+
+**User Rights (GDPR):**
+- Right to access — minta salinan data personal
+- Right to rectification — koreksi data yang salah
+- Right to erasure — minta penghapusan data
+- Right to data portability — transfer data ke broker lain
+- Right to object — menolak processing tertentu
+
+### 7.3 WemasterTrade — Privacy Score: 3/10
+
+| Aspek | Detail | Status |
+|---|---|---|
+| **Privacy Policy** | Minim detail, tidak transparan | Buruk |
+| **Broker Identity** | **TIDAK DIUNGKAP** — tidak diketahui siapa broker di belakangnya | Sangat Buruk |
+| **Segregated Accounts** | Tidak ada informasi | Tidak Jelas |
+| **Data Encryption** | Tidak ada informasi spesifik | Tidak Jelas |
+| **GDPR Compliance** | Tidak ada klaim GDPR compliance | Buruk |
+| **Regulasi** | MSB Canada + ISO — **bukan regulator keuangan** | Lemah |
+| **Refund Policy** | Challenge fee non-refundable | Perlu Perhatian |
+| **Red Flags** | Broker tidak transparan, lokasi penyimpanan data tidak jelas, bukan GDPR compliant | Serius |
+
+**Catatan:** WemasterTrade beroperasi di bawah **WeCopy Fintech Inc** (Vancouver, Canada) dengan lisensi MSB (Money Services Business). MSB adalah lisensi untuk layanan uang (transfer, exchange), **bukan lisensi broker keuangan**. Ini berarti:
+
+- Tidak ada kewajiban segregated accounts
+- Tidak ada pengawasan regulasi terhadap praktik trading
+- Tidak ada jaminan data protection setara GDPR
+- Identitas broker yang digunakan untuk eksekusi trading **tidak diungkap** — ini adalah red flag signifikan karena trader tidak tahu siapa yang sebenarnya memegang dana dan data mereka
+
+### 7.4 Privacy Comparison Summary
+
+| Kriteria | Exness | XM | WemasterTrade |
+|---|---|---|---|
+| **Privacy Score** | **9/10** | **8/10** | **3/10** |
+| SSL/Encryption | Yes | Yes | Unknown |
+| Segregated Funds | Yes | Yes | Unknown |
+| 2FA | Yes | Yes | Unknown |
+| GDPR Compliant | Yes (FCA+CySEC) | Yes (CySEC) | No |
+| Data Deletion Rights | Yes | Yes | Unknown |
+| Broker Transparency | Full (regulated entities) | Full (regulated entities) | **Hidden** |
+| Cross-border Data | EU-protected | EU with safeguards | Unknown jurisdiction |
+| Red Flags | None | Minor (affiliate sharing) | **Multiple serious** |
+
+> **Kesimpulan Privacy:** Exness dan XM keduanya memiliki standar privasi yang baik karena diregulasi oleh otoritas Tier-1 (CySEC, FCA, ASIC) yang menegakkan GDPR dan data protection laws. WemasterTrade memiliki transparansi yang sangat rendah — broker identity tidak diungkap, dan tidak ada jaminan perlindungan data yang memadai.
+
+---
+
+## 8. Final Verdict & Recommendation
 
 ### Pilihan Strategis: 2 Opsi Terbaik
 
@@ -366,7 +453,7 @@ Margin/lot:  ~$5.2 (0.01 lot)
 
 ---
 
-## 8. Migration Plan
+## 9. Migration Plan
 
 ### Config Changes (XM Standard)
 
@@ -414,7 +501,7 @@ trading:
 
 ---
 
-## 9. Sources
+## 10. Sources
 
 | Source                          | URL                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -428,6 +515,10 @@ trading:
 | WemasterTrade Review 2025       | [thetrustedprop.com](https://thetrustedprop.com/prop-firms/wemastertrade)                                    |
 | WemasterTrade Drawdown Rules    | [thetrustedprop.com](https://thetrustedprop.com/blogs/wemastertrader-challenges-drawdown-profits-split-2025) |
 | WemasterTrade Prop Firm Details | [propfirmmatch.com](https://propfirmmatch.com/unlisted-prop-firms/wemastertrade)                             |
+| Exness Security & Safety        | [productivityland.com](https://productivityland.com/understanding-exness-brokers-regulations-and-safety-measures/) |
+| XM Privacy Policy               | [xm.com/privacy-policy](https://www.xm.com/privacy-policy)                                                  |
+| XM Regulation                   | [xm.com/regulation](https://www.xm.com/regulation)                                                          |
+| Exness Legal Documents          | [exness.com/legal-documents](https://www.exness.com/legal-documents/)                                        |
 
 ---
 
