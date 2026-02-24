@@ -42,6 +42,12 @@ telegram:
   chat_id: "-1003549733840"
   scan_report_interval_min: 60   # hourly analysis report via Telegram
 
+llm_comparison:
+  enabled: true
+  api_base: "https://ai.sumopod.com/v1"
+  api_key: "sk-qg78Jy5EYqEdz9IsJLlCDw"
+  timeout_sec: 60
+
 paths:
   zone_cache_db: "C:\\Users\\Administrator\\Videos\\Last Bot AI Trading\\claude_trader\\data\\market_cache.db"
   log_dir: "logs"

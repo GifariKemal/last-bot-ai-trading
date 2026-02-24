@@ -12,6 +12,7 @@ from loguru import logger
 import mt5_client as mt5c
 import claude_validator as validator
 import telegram_notifier as tg
+import llm_comparator as llm_cmp
 
 
 # ── Lot sizing ────────────────────────────────────────────────────────────────
@@ -472,6 +473,10 @@ def review_positions_with_claude(
         if response is None:
             logger.warning(f"  Exit review failed for ticket={ticket}")
             continue
+
+        # ── LLM Comparison for non-HOLD exits (background, non-blocking) ──
+        if response.get("action") in ("TAKE_PROFIT", "TIGHTEN"):
+            llm_cmp.compare_exit_async(pos_data, response, claude_cfg)
 
         action = response["action"]
         reason = response.get("reason", "")

@@ -39,6 +39,7 @@ import zone_detector as zdet
 import console_format as cfmt
 import logger_config
 import telegram_notifier as tg
+import llm_comparator as llm_cmp
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -692,6 +693,9 @@ def run_scan_cycle(cfg: dict) -> None:
             f"  CLAUDE APPROVED | {decision} | conf={confidence:.2f} | {reason}"
         )
 
+        # ── LLM Comparison (background, non-blocking) ────────────────────────
+        llm_cmp.compare_entry_async(setup, response, c_cfg)
+
         # ── Execute ───────────────────────────────────────────────────────────
         # ALWAYS use bot-calculated SL/TP (Claude's SL override caused lot sizing issues)
         exec_sl = sl
@@ -996,6 +1000,10 @@ def main():
             min_signals=3,
             min_conf=t_cfg_main.get("min_confidence", 0.70),
         )
+
+    # ── Initialize LLM Comparator ────────────────────────────────────────────
+    llm_cmp_cfg = _cfg.get("llm_comparison", {})
+    llm_cmp.configure(llm_cmp_cfg)
 
     interval = _cfg.get("scanner", {}).get("interval_sec", 30)
     tg_interval_min = tg_cfg.get("scan_report_interval_min", 30)
