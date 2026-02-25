@@ -58,6 +58,7 @@ class DrawdownMonitor:
         self.last_reset_date = None
         self.pause_until = None
         self.trade_history = []  # Recent trades for tracking
+        self._loss_limit_logged = False  # Bug #52: prevent repeated log spam for percent-based limits
 
     def initialize(self, account_info: Dict) -> None:
         """
@@ -106,12 +107,14 @@ class DrawdownMonitor:
         # Bug #37 fix: pause window just expired — clear consecutive losses so trading
         # resumes. Without this, consecutive_losses stays >= limit and immediately
         # triggers another 60-minute pause, making the cooldown infinite.
+        pause_just_expired = False
         if self.pause_until and datetime.now() >= self.pause_until:
             self.logger.info(
                 f"Pause window expired. Resetting consecutive losses from {self.consecutive_losses} to 0."
             )
             self.consecutive_losses = 0
             self.pause_until = None
+            pause_just_expired = True
 
         violations = []
 
@@ -189,8 +192,18 @@ class DrawdownMonitor:
 
         # If violations exist
         if violations:
-            # Initiate pause if enabled
-            if self.pause_on_limit:
+            # Bug #52 fix: percent-based violations (daily/weekly/monthly loss, drawdown)
+            # are permanent until the period resets — they can't recover without trading.
+            # Only set a timed pause for consecutive_losses (which was just cleared).
+            # For percent-based violations, block permanently (no new timed pause).
+            has_percent_violation = any(
+                v["type"] in ("daily_loss", "weekly_loss", "monthly_loss", "max_drawdown")
+                for v in violations
+            )
+            only_consecutive = all(v["type"] == "consecutive_losses" for v in violations)
+
+            if self.pause_on_limit and only_consecutive:
+                # Consecutive losses: set timed pause (resumes after cooldown)
                 self.pause_until = datetime.now() + timedelta(
                     minutes=self.pause_duration_minutes
                 )
@@ -198,12 +211,20 @@ class DrawdownMonitor:
                     f"Trading paused until {self.pause_until} due to: "
                     f"{', '.join([v['message'] for v in violations])}"
                 )
+            elif has_percent_violation and not self._loss_limit_logged:
+                # Percent-based: block permanently until period reset (no timed pause loop)
+                self._loss_limit_logged = True
+                self.logger.warning(
+                    f"Trading BLOCKED until period reset: "
+                    f"{', '.join([v['message'] for v in violations])}"
+                )
 
             return {
                 "allowed": False,
-                "reason": "Protection rules triggered",
+                "reason": "Protection rules triggered" if not has_percent_violation
+                    else f"Loss limit exceeded — blocked until reset ({', '.join(v['type'] for v in violations)})",
                 "violations": violations,
-                "pause_until": self.pause_until if self.pause_on_limit else None,
+                "pause_until": self.pause_until if only_consecutive else None,
             }
 
         # All checks passed
@@ -289,6 +310,7 @@ class DrawdownMonitor:
             self.daily_start_balance = balance
             self.last_reset_date = current_date
             self.consecutive_losses = 0  # Reset on new day
+            self._loss_limit_logged = False  # Bug #52: allow logging for new day's violations
 
         # Reset weekly (on Monday)
         if now.weekday() == 0 and (now - datetime.combine(self.last_reset_date, datetime.min.time())).days >= 7:

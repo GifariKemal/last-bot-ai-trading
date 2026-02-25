@@ -474,7 +474,8 @@ class TradingBot:
                 risk_check = self.drawdown_monitor.check_trading_allowed(account_info)
                 trading_paused = not risk_check.get("allowed")
                 if trading_paused:
-                    self.logger.warning(f"Risk limits exceeded: {risk_check['reason']} (exit management continues)")
+                    if not self._drawdown_paused_prev:
+                        self.logger.warning(f"Risk limits exceeded: {risk_check['reason']} (exit management continues)")
                     if not self._drawdown_paused_prev:
                         # Build detail from violations or reason
                         violations = risk_check.get("violations", [])
@@ -775,6 +776,7 @@ class TradingBot:
                     mtf_analysis,
                     regime=current_regime,
                     ltf_data=ltf_data,
+                    opposing_smc=bearish_smc,
                 )
                 bearish_confluence = self.adaptive_scorer.calculate_score(
                     TrendDirection.BEARISH,
@@ -784,6 +786,7 @@ class TradingBot:
                     mtf_analysis,
                     regime=current_regime,
                     ltf_data=ltf_data,
+                    opposing_smc=bullish_smc,
                 )
             else:
                 bullish_confluence = self.confluence_scorer.calculate_score(
@@ -1143,7 +1146,9 @@ class TradingBot:
                     stale_already_tried = (tracked or {}).get("stale_exit_attempted", False)
                     if not stale_already_tried:
                         entry_time = (tracked or {}).get("entry_time")
-                        if entry_time:
+                        if not entry_time:
+                            self.logger.warning(f"#{ticket} Stale check skipped: no entry_time in tracker")
+                        else:
                             # Bug #48 safe: parse ISO string + ensure tz-aware
                             if isinstance(entry_time, str):
                                 entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
@@ -1154,6 +1159,13 @@ class TradingBot:
 
                             peak_profit_dist = (tracked or {}).get("peak_profit", 0)
                             peak_rr = peak_profit_dist / sl_distance if sl_distance > 0 else 0
+
+                            # After restart, peak_profit resets to 0.0 — we don't know true peak.
+                            # Log it so it's visible, but still fire (full SL loss is worse than false exit).
+                            if (tracked or {}).get("entry_sl_from_restart") and peak_profit_dist == 0:
+                                self.logger.info(
+                                    f"#{ticket} Stale check post-restart: peak tracking reset, peak_rr={peak_rr:.2f} may be understated"
+                                )
 
                             if age_hours >= self.stale_trade_min_hours and peak_rr < self.stale_trade_min_peak_rr:
                                 self.logger.info(
@@ -1198,7 +1210,9 @@ class TradingBot:
                     near_sl_already_tried = (tracked or {}).get("near_sl_exit_attempted", False)
                     if not near_sl_already_tried:
                         entry_time = (tracked or {}).get("entry_time")
-                        if entry_time:
+                        if not entry_time:
+                            self.logger.warning(f"#{ticket} Near-SL check skipped: no entry_time in tracker")
+                        else:
                             # Bug #48 fix: entry_time stored as ISO string, must parse before subtraction
                             if isinstance(entry_time, str):
                                 entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))

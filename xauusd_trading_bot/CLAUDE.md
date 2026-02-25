@@ -126,6 +126,12 @@ main.py
 - `RSI_HARD_OVERSOLD = 15` (hard block — was 10, fixed 2026-02-22)
 - `checks["confluence_met"] = True` (adaptive scorer `passing` is sole gatekeeper)
 
+### Adaptive Scorer Guards (adaptive_scorer.py)
+- `MIN_SMC_FILL = 0.30` — if raw SMC fill < 30% of max, cap final score at 0.45 (below any regime threshold). Prevents tech indicators from rescuing a weak SMC signal.
+- `MAX_SCORE_ON_WEAK_SMC = 0.45` — cap applied when SMC fill is below floor
+- `OPPOSING_CHOCH_PENALTY = 0.15` — when the opposing direction has a CHoCH (reversal signal), subtract 0.15 from this direction's score. Passed via `opposing_smc` param from trading_bot.py.
+- Log line now shows `smc_fill=XX%` and `[SMC_CAPPED]` tag when floor triggers
+
 ### Regime Weights (settings.yaml)
 - Trending: min_conf=0.550, min_smc=1, sl_mult=2.60  (floor 0.55 — was 0.437, allowed marginal entries)
 - Ranging: min_conf=0.550, min_smc=3, sl_mult=4.66
@@ -173,6 +179,9 @@ Min RR before structure/opposite-signal exit fires. Optuna-optimized (50 trials,
 | #38 | `require_all_positions_profitable` blocked all | Set `false` in config |
 | #39 | Exit fires on entry candle | `MIN_HOLD_MINUTES = 30` (was 15, raised to 2 M15 bars) |
 | #40 | AdaptiveScorer inflation (smc_raw/0.40) | Normalize by `_smc_base_max` |
+| #50 | Weak SMC (BOS-only 26%) inflated to 0.76 by tech+MTF | `MIN_SMC_FILL=0.30` cap + `OPPOSING_CHOCH_PENALTY=0.15` in adaptive_scorer.py |
+| #51 | Stale exit skipped after restart (no `entry_time`) | `add_position()` derives `entry_time` from MT5 `open_time`; also preserves `entry_sl` |
+| #52 | Infinite pause loop (daily loss re-triggers 60min pause) | Percent-based violations block permanently until period reset; timed pause only for consecutive losses |
 
 ---
 

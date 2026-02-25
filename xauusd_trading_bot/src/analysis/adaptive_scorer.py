@@ -58,6 +58,13 @@ DEFAULT_REGIME_WEIGHTS = {
     },
 }
 
+# Raw SMC floor: if SMC fill < 30% of max, cap final score below any regime threshold
+MIN_SMC_FILL = 0.30
+MAX_SCORE_ON_WEAK_SMC = 0.45
+
+# Opposing CHoCH penalty: when the other direction has a CHoCH (reversal signal)
+OPPOSING_CHOCH_PENALTY = 0.15
+
 # Default signal quality multipliers (overridden by decomposition results)
 DEFAULT_SIGNAL_QUALITY = {
     "fvg": 1.0,
@@ -147,6 +154,7 @@ class AdaptiveConfluenceScorer:
         mtf_analysis: Dict,
         regime: MarketRegime = MarketRegime.RANGE_WIDE,
         ltf_data: Dict = None,
+        opposing_smc: Dict = None,
     ) -> Dict:
         """
         Calculate regime-adaptive confluence score.
@@ -187,19 +195,27 @@ class AdaptiveConfluenceScorer:
             bonus_score = bonus_raw["total"]
             breakdown["bonus"] = bonus_raw
 
-            # 4. Market condition adjustments (including counter-trend penalty)
-            adjustments = self._apply_adjustments(market_analysis, regime, direction)
+            # 4. Market condition adjustments (including counter-trend penalty, opposing CHoCH)
+            adjustments = self._apply_adjustments(market_analysis, regime, direction, opposing_smc)
             breakdown["adjustments"] = adjustments
 
             raw_score = smc_score + tech_score + bonus_score + adjustments["total"]
             final_score = max(0.0, min(1.0, raw_score))
+
+            # Fix 1: Raw SMC floor — weak SMC signal can't be rescued by tech/MTF alone
+            smc_capped = False
+            if smc_fill < MIN_SMC_FILL:
+                if final_score > MAX_SCORE_ON_WEAK_SMC:
+                    smc_capped = True
+                    final_score = MAX_SCORE_ON_WEAK_SMC
+
             min_conf = params["min_confluence"]
 
-            self.logger.debug(
-                f"V3 Score: smc_fill={smc_fill:.2f}*{params['smc_weight']:.3f}={smc_score:.3f} | "
-                f"tech_fill={tech_fill:.2f}*{params['tech_weight']:.3f}={tech_score:.3f} | "
-                f"bonus={bonus_score:.3f} | adj={adjustments['total']:.3f} | "
-                f"raw={raw_score:.3f} → final={final_score:.3f} (min={min_conf:.3f})"
+            self.logger.info(
+                f"Score [{direction.value}]: smc_fill={smc_fill:.0%}*{params['smc_weight']:.2f}={smc_score:.3f} | "
+                f"tech={tech_score:.3f} | bonus={bonus_score:.3f} | adj={adjustments['total']:.3f} | "
+                f"final={final_score:.3f} (min={min_conf:.3f})"
+                f"{' [SMC_CAPPED]' if smc_capped else ''}"
             )
 
             return {
@@ -209,6 +225,7 @@ class AdaptiveConfluenceScorer:
                 "passing": final_score >= min_conf,
                 "regime": regime.value,
                 "min_confluence": min_conf,
+                "smc_capped": smc_capped,
             }
 
         except Exception as e:
@@ -366,8 +383,9 @@ class AdaptiveConfluenceScorer:
     def _apply_adjustments(
         self, market_analysis: Dict, regime: MarketRegime,
         direction: TrendDirection = None,
+        opposing_smc: Dict = None,
     ) -> Dict:
-        """Apply regime-aware adjustments including counter-trend penalty."""
+        """Apply regime-aware adjustments including counter-trend and opposing CHoCH penalty."""
         adjustments = 0.0
         details = {}
 
@@ -394,6 +412,12 @@ class AdaptiveConfluenceScorer:
             if is_counter_trend:
                 adjustments -= 0.10
                 details["counter_trend"] = -0.10
+
+        # Opposing CHoCH penalty: if the other direction has a CHoCH (reversal signal),
+        # penalize this direction — CHoCH signals potential reversal against us
+        if opposing_smc and opposing_smc.get("structure", {}).get("choch"):
+            adjustments -= OPPOSING_CHOCH_PENALTY
+            details["opposing_choch"] = -OPPOSING_CHOCH_PENALTY
 
         return {"total": adjustments, "details": details}
 

@@ -4,7 +4,7 @@ Tracks and monitors all open positions with detailed metrics.
 """
 
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from ..bot_logger import get_logger
 
 
@@ -40,6 +40,29 @@ class PositionTracker:
             "updates": [],
             "status": "active",
         }
+
+        # Bug #51: Ensure entry_time is set for stale/early-exit checks.
+        # On restart, sync_with_mt5 re-tracks positions — MT5 provides open_time
+        # but NOT entry_time. Derive it so stale exit works across restarts.
+        if "entry_time" not in tracked_position and "open_time" in tracked_position:
+            ot = tracked_position["open_time"]
+            if isinstance(ot, datetime):
+                if ot.tzinfo is None:
+                    ot = ot.replace(tzinfo=timezone.utc)
+                tracked_position["entry_time"] = ot.isoformat()
+            elif isinstance(ot, (int, float)):
+                tracked_position["entry_time"] = datetime.fromtimestamp(ot, tz=timezone.utc).isoformat()
+
+        # Bug #47 companion: Ensure entry_sl for stable RR calculation across restarts.
+        # WARNING: After restart, MT5's live SL may already be post-BE/trailing.
+        # We can't recover the true original SL from MT5 alone — but having a
+        # post-BE entry_sl is still better than the fallback (abs(entry - current_sl)
+        # which would be identical anyway). Flag it as potentially stale.
+        if "entry_sl" not in tracked_position:
+            sl = tracked_position.get("sl", 0)
+            if sl > 0:
+                tracked_position["entry_sl"] = sl
+                tracked_position["entry_sl_from_restart"] = True
 
         self.positions[ticket] = tracked_position
         price = position.get("open_price") or position.get("entry_price") or position.get("price", 0)
