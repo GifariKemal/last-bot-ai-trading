@@ -1138,7 +1138,8 @@ class TradingBot:
 
                 # Stale trade exit: position open N hours but peak profit never reached min threshold.
                 # Momentum is dead — cut loss early rather than waiting for full SL hit.
-                if self.stale_trade_enabled and profit_distance < 0:
+                # Skip if BE already set — MT5's SL will close at 0 loss, no point closing at a real loss.
+                if self.stale_trade_enabled and profit_distance < 0 and not already_be:
                     stale_already_tried = (tracked or {}).get("stale_exit_attempted", False)
                     if not stale_already_tried:
                         entry_time = (tracked or {}).get("entry_time")
@@ -1151,20 +1152,20 @@ class TradingBot:
                                 entry_time = entry_time.replace(tzinfo=timezone.utc)
                             age_hours = (now_utc - entry_time).total_seconds() / 3600
 
-                            peak_profit_pips = (tracked or {}).get("peak_profit", 0)
-                            peak_rr = peak_profit_pips / sl_distance if sl_distance > 0 else 0
+                            peak_profit_dist = (tracked or {}).get("peak_profit", 0)
+                            peak_rr = peak_profit_dist / sl_distance if sl_distance > 0 else 0
 
                             if age_hours >= self.stale_trade_min_hours and peak_rr < self.stale_trade_min_peak_rr:
                                 self.logger.info(
                                     f"#{ticket} Stale trade exit: peak={peak_rr:.2f}R (min {self.stale_trade_min_peak_rr}R), age={age_hours:.1f}h"
                                 )
-                                self.position_tracker.update_position(
-                                    ticket, {"stale_exit_attempted": True}
-                                )
                                 result = self.order_executor.execute_exit(
                                     ticket, f"Stale trade exit (peak {peak_rr:.2f}R in {age_hours:.1f}h)"
                                 )
                                 if result.get("success"):
+                                    self.position_tracker.update_position(
+                                        ticket, {"stale_exit_attempted": True}
+                                    )
                                     tracked_pos = self.position_tracker.get_position(ticket)
                                     if tracked_pos and "profit" not in result:
                                         result["profit"] = tracked_pos.get("profit", 0)
