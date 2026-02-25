@@ -156,6 +156,7 @@ class TradingBot:
 
         # Market open/closed state tracker — sends Telegram on transitions
         self._market_allowed_prev = None  # None = not yet checked
+        self._drawdown_paused_prev = False  # Telegram: only notify on transition
 
         # Position direction limits (prevents same-direction pile-ups)
         _pos_lim = config.get("risk", {}).get("position_limits", {})
@@ -468,6 +469,29 @@ class TradingBot:
                 trading_paused = not risk_check.get("allowed")
                 if trading_paused:
                     self.logger.warning(f"Risk limits exceeded: {risk_check['reason']} (exit management continues)")
+                    if not self._drawdown_paused_prev:
+                        # Build detail from violations or reason
+                        violations = risk_check.get("violations", [])
+                        if violations:
+                            detail_lines = [f"\u203a {v['message']}" for v in violations]
+                        else:
+                            detail_lines = [f"\u203a {risk_check['reason']}"]
+                        detail_lines.append("\u203a Exit management tetap aktif")
+                        pause_until = risk_check.get("pause_until")
+                        if pause_until:
+                            remaining = (pause_until - datetime.now()).total_seconds() / 60
+                            if remaining > 0:
+                                detail_lines.append(f"\u203a Cooldown: {remaining:.0f} min")
+                        self.telegram.send_bot_status(
+                            "TRADING PAUSED \u26a0\ufe0f",
+                            "\n".join(detail_lines),
+                        )
+                elif self._drawdown_paused_prev:
+                    self.telegram.send_bot_status(
+                        "TRADING RESUMED \u2705",
+                        "\u203a Risk limits cleared \u2014 entry scanning aktif kembali",
+                    )
+                self._drawdown_paused_prev = trading_paused
 
                 # 4.5 Emergency safety check (equity drop, margin level, large drawdown)
                 emergency_active = False
@@ -483,6 +507,12 @@ class TradingBot:
                         self.logger.critical(f"EMERGENCY CONDITIONS MET: {trigger_msg}")
                         self.emergency_handler.emergency_stop(reason=trigger_msg)
                         emergency_active = True
+                        self.telegram.send_bot_status(
+                            "\U0001f6a8 EMERGENCY STOP",
+                            f"\u203a {trigger_msg}\n"
+                            f"\u203a ALL trading halted\n"
+                            f"\u203a Manual restart required",
+                        )
 
                 # 5. Position management ALWAYS runs (BE, trailing, partial close protect profit)
                 if current_positions and self._last_market_data:
