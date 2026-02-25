@@ -73,6 +73,7 @@ class SMCStrategy:
                     smc_analysis,
                     market_analysis,
                     technical_indicators,
+                    regime=regime,
                 )
                 if exit_signal.get("should_exit", False):
                     exit_signals.append({
@@ -111,6 +112,7 @@ class SMCStrategy:
                     entry_signal["valid"] = False
                     entry_signal["validation"] = validation
                     entry_signal["rejection_reason"] = validation.get("message")
+                    entry_signal["reasons"] = [validation.get("message", "Validation failed")]
 
             # 4. Prepare complete decision
             decision = {

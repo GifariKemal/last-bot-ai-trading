@@ -138,6 +138,15 @@ main.py
 - `partial_close_rr: max(tp_rr * 0.65, 1.0)` — Dynamic partial (NOT 2.73R fixed)
 - `trail_activation_rr: 2.72` — Start trailing at 2.72R
 
+### Regime-Adaptive Structure Exit (exit_signals.py `STRUCTURE_EXIT_MIN_RR`)
+Min RR before structure/opposite-signal exit fires. Optuna-optimized (50 trials, 3-month WF, score 100.56 vs baseline 45.43).
+- Strong Trend: **0.8R** — CHoCH in strong trends is often pullback, not reversal; wait for profit
+- Weak Trend: **0.2R** — Weak trends reverse easily on CHoCH; exit quickly
+- Range: **1.1R** — Simons: structure = noise, only 1.1R+ exits
+- Volatile/Breakout: **0.6R** — Don't panic exit; require 0.6R before structure exit
+- Reversal: **0.6R** — Reversals ARE CHoCH patterns; don't exit on entry signal noise
+- `MIN_HOLD_MINUTES = 60` (4 M15 bars, was 30/2 bars — Optuna min_hold_bars=4)
+
 ### SMC Lookbacks
 - `swing_lookback = 5` (was 10 — M15-optimized 2026-02-23, sw=5 → PF=4.61, WR=64.7%)
 - `BOS_LOOKBACK_BARS = 50` (restored from 20 — needed with sw=5 for adequate BOS coverage)
@@ -154,7 +163,7 @@ main.py
 | #36a/b/c | execute_exit profit, MT5 race, external SL/TP | Patched in order_executor.py |
 | #37 | Infinite pause after counter reset | Reset `consecutive_losses` on pause expiry |
 | #38 | `require_all_positions_profitable` blocked all | Set `false` in config |
-| #39 | Exit fires on entry candle | `MIN_HOLD_MINUTES = 15` |
+| #39 | Exit fires on entry candle | `MIN_HOLD_MINUTES = 30` (was 15, raised to 2 M15 bars) |
 | #40 | AdaptiveScorer inflation (smc_raw/0.40) | Normalize by `_smc_base_max` |
 
 ---

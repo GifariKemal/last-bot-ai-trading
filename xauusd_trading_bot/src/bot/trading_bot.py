@@ -1250,13 +1250,16 @@ class TradingBot:
                                                     f"SL moved to {new_sl:.2f} (recovery)"
                                                 )
 
-                # Check strategy exit signals
+                # Check strategy exit signals (regime-adaptive structure exit threshold)
+                regime_result = market_data.get("regime_result", {})
+                current_regime = regime_result.get("regime", MarketRegime.RANGE_WIDE)
                 exit_signal = self.strategy.exit_generator.check_exit_conditions(
                     position,
                     current_price,
                     market_data["smc_analysis"],
                     market_data["market_analysis"],
-                    market_data["technical_indicators"]
+                    market_data["technical_indicators"],
+                    regime=current_regime,
                 )
 
                 if exit_signal.get("should_exit"):

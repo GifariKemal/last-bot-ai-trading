@@ -7,9 +7,34 @@ from typing import Dict, List
 from datetime import datetime, timedelta, timezone
 import polars as pl
 
-from ..core.constants import SignalType, TrendDirection
+from ..core.constants import SignalType, TrendDirection, MarketRegime
 from ..sessions.dst_utils import get_session_times_utc
 from ..bot_logger import get_logger
+
+# Regime-adaptive minimum RR for structure/opposite-signal exit.
+# Higher threshold = trade must be deeper in profit before structure exit fires.
+# This prevents whipsaw exits in choppy regimes while respecting genuine breaks in trends.
+#
+# Philosophy — Signal-to-Noise Ratio per regime (Dennis + Simons):
+#   High S/N  (0.0R) → structure break = real SIGNAL, act immediately
+#   Low  S/N  (1.0R) → structure break = NOISE, require proven profit
+#
+#   STRONG_TREND  — Dennis (Turtle): "Respect the break — trends don't last forever"
+#   WEAK_TREND    — Lipschutz: "Patience is the edge — don't react to every wiggle"
+#   RANGE         — Simons: "Only act on statistically significant anomalies"
+#   VOLATILE      — Soros (Reflexivity): "Protect gains — breaks can cascade"
+#   REVERSAL      — Kotegawa: "When reversal confirms, hesitation is the enemy"
+STRUCTURE_EXIT_MIN_RR = {
+    # Optuna-optimized (50 trials, 3-month walk-forward, score 100.56 vs baseline 45.43)
+    MarketRegime.STRONG_TREND_UP: 0.8,      # Wait for 0.8R profit — CHoCH in strong trends is often just a pullback
+    MarketRegime.STRONG_TREND_DOWN: 0.8,
+    MarketRegime.WEAK_TREND_UP: 0.2,        # Exit quickly — weak trends reverse easily on CHoCH
+    MarketRegime.WEAK_TREND_DOWN: 0.2,
+    MarketRegime.RANGE_TIGHT: 1.1,          # Simons: structure = noise, only 1.1R+ exits
+    MarketRegime.RANGE_WIDE: 1.1,
+    MarketRegime.VOLATILE_BREAKOUT: 0.6,    # Don't panic — require 0.6R before structure exit
+    MarketRegime.REVERSAL: 0.6,             # Reversals ARE CHoCH — don't exit on entry signal noise
+}
 
 
 class ExitSignalGenerator:
@@ -39,6 +64,7 @@ class ExitSignalGenerator:
         smc_analysis: Dict,
         market_analysis: Dict,
         technical_indicators: Dict,
+        regime: MarketRegime = MarketRegime.RANGE_WIDE,
     ) -> Dict:
         """
         Check if position should be exited.
@@ -49,6 +75,7 @@ class ExitSignalGenerator:
             smc_analysis: SMC analysis
             market_analysis: Market condition analysis
             technical_indicators: Technical indicators
+            regime: Current market regime for adaptive structure exit threshold
 
         Returns:
             Exit signal dictionary
@@ -64,8 +91,9 @@ class ExitSignalGenerator:
 
             # Minimum hold period: skip structure/signal exits on freshly opened positions.
             # A bearish CHoCH that existed when the BUY was opened should not
-            # immediately close it — wait at least 1 M15 bar (15 minutes).
-            MIN_HOLD_MINUTES = 15
+            # immediately close it — wait at least 4 M15 bars (60 minutes).
+            # Optuna-optimized: min_hold_bars=4 (was 2)
+            MIN_HOLD_MINUTES = 60
             if entry_time:
                 entry_aware = entry_time if entry_time.tzinfo else entry_time.replace(tzinfo=timezone.utc)
                 minutes_open = (datetime.now(timezone.utc) - entry_aware).total_seconds() / 60
@@ -90,7 +118,8 @@ class ExitSignalGenerator:
                 })
 
             # 3. Opposite structure break (skip for freshly opened positions)
-            # Only exit if near breakeven or profit — let SL protect losing positions
+            # Regime-adaptive: require higher profit in noisy regimes before exiting
+            min_rr = STRUCTURE_EXIT_MIN_RR.get(regime, 0.0)
             if self.exit_config.get("use_structure_exit", True) and not position_too_new:
                 structure_exit = self._check_structure_exit(
                     position_type, smc_analysis
@@ -102,21 +131,21 @@ class ExitSignalGenerator:
                     else:
                         pnl_fraction = (entry_price - current_price) / sl_distance
 
-                    if pnl_fraction >= -0.3:  # Within 30% of SL = near BE or better
+                    if pnl_fraction >= min_rr:
                         exit_checks.append({
                             "reason": "Opposite structure break",
                             "priority": 2,
                             "exit_now": True,
                         })
                     else:
-                        # Skip exit — position too deep in loss, let SL protect
+                        regime_name = regime.value if regime else "unknown"
                         self.logger.info(
-                            f"Structure exit SKIPPED: position at {pnl_fraction:+.0%} of SL "
-                            f"(need >= -30%). Letting SL protect."
+                            f"Structure exit SKIPPED ({regime_name}): position at {pnl_fraction:+.2f}R "
+                            f"(need >= {min_rr:.1f}R). Letting SL protect."
                         )
 
             # 4. Opposite entry signal (skip for freshly opened positions)
-            # Only exit if near breakeven or profit — let SL protect losing positions
+            # Uses same regime-adaptive min_rr as structure exit
             if self.exit_config.get("use_opposite_signal", True) and not position_too_new:
                 opposite_signal = self._check_opposite_signal(
                     position_type, smc_analysis
@@ -128,17 +157,17 @@ class ExitSignalGenerator:
                     else:
                         pnl_fraction = (entry_price - current_price) / sl_distance
 
-                    if pnl_fraction >= -0.3:  # Within 30% of SL = near BE or better
+                    if pnl_fraction >= min_rr:
                         exit_checks.append({
                             "reason": "Opposite entry signal detected",
                             "priority": 2,
                             "exit_now": True,
                         })
                     else:
-                        # Skip exit — position too deep in loss, let SL protect
+                        regime_name = regime.value if regime else "unknown"
                         self.logger.info(
-                            f"Opposite signal exit SKIPPED: position at {pnl_fraction:+.0%} of SL "
-                            f"(need >= -30%). Letting SL protect."
+                            f"Opposite signal exit SKIPPED ({regime_name}): position at {pnl_fraction:+.2f}R "
+                            f"(need >= {min_rr:.1f}R). Letting SL protect."
                         )
 
             # 5. Time-based exit

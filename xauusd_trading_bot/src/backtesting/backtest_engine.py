@@ -122,6 +122,9 @@ class BacktestEngine:
         # V3: Regime tracking for metrics
         self._regime_per_trade = []
 
+        # Structure exit config (None = disabled, backward compatible)
+        self._structure_exit_config = config.get("structure_exit", None)
+
     def run_backtest(
         self,
         mt5,
@@ -215,6 +218,10 @@ class BacktestEngine:
         self._regime_per_trade = []
         self.df_m5 = df_m5
 
+        # Initialize SMC internal state (swing points, structure cache)
+        # Without this, get_bullish/bearish_signals returns empty results
+        self.smc.calculate_all(df_prepared)
+
         self._simulate_trading(df_prepared, "XAUUSDm")
 
         # Close remaining
@@ -296,24 +303,44 @@ class BacktestEngine:
             current_price = current_bar["close"][0]
             current_time = current_bar["time"][0]
 
-            # Update open positions
-            self._update_positions(current_price, current_bar)
+            # Pre-compute SMC/regime for structure exit (only when needed)
+            smc_for_exit = None
+            regime_for_exit = None
+            if self.open_positions and self._structure_exit_config:
+                df_slice_exit = df[:i+1]
+                regime_result_exit = self.regime_detector.detect(df_slice_exit)
+                regime_for_exit = regime_result_exit["regime"]
+                bullish_exit = self.smc.get_bullish_signals(df_slice_exit, current_price)
+                bearish_exit = self.smc.get_bearish_signals(df_slice_exit, current_price)
+                smc_for_exit = {"bullish": bullish_exit, "bearish": bearish_exit}
+
+            # Update open positions (with structure exit data if available)
+            self._update_positions(
+                current_price, current_bar, bar_index=i,
+                smc_analysis=smc_for_exit, regime=regime_for_exit,
+            )
 
             # Check basic trading conditions
             if not self._should_trade(current_time):
                 continue
 
-            # Get data slice
+            # Get data slice (reuse if already computed for exit)
             df_slice = df[:i+1]
 
-            # V3: Detect market regime
-            regime_result = self.regime_detector.detect(df_slice)
-            regime = regime_result["regime"]
+            # V3: Detect market regime (reuse if already computed for exit)
+            if regime_for_exit is not None:
+                regime = regime_for_exit
+            else:
+                regime_result = self.regime_detector.detect(df_slice)
+                regime = regime_result["regime"]
 
-            # Get SMC signals
-            bullish_smc = self.smc.get_bullish_signals(df_slice, current_price)
-            bearish_smc = self.smc.get_bearish_signals(df_slice, current_price)
-            smc_analysis = {"bullish": bullish_smc, "bearish": bearish_smc}
+            # Get SMC signals (reuse if already computed for exit)
+            if smc_for_exit is not None:
+                smc_analysis = smc_for_exit
+            else:
+                bullish_smc = self.smc.get_bullish_signals(df_slice, current_price)
+                bearish_smc = self.smc.get_bearish_signals(df_slice, current_price)
+                smc_analysis = {"bullish": bullish_smc, "bearish": bearish_smc}
 
             # Technical indicators
             ema_20_val = df_slice["ema_20"][-1] if "ema_20" in df_slice.columns else current_price
@@ -345,6 +372,8 @@ class BacktestEngine:
                 ltf_data = {"m5_df": self.df_m5, "current_m15_time": current_time}
 
             # V3: Adaptive confluence scoring with regime
+            bullish_smc = smc_analysis["bullish"]
+            bearish_smc = smc_analysis["bearish"]
             if self.use_adaptive_scorer:
                 bullish_confluence = self.confluence_scorer.calculate_score(
                     TrendDirection.BULLISH, bullish_smc, technical_indicators,
@@ -435,7 +464,7 @@ class BacktestEngine:
                     self._open_position(
                         entry_signal, size_info["lot_size"],
                         sltp["sl"], sltp["tp"], current_time,
-                        regime=regime, sltp_info=sltp,
+                        regime=regime, sltp_info=sltp, bar_index=i,
                     )
                     entry_count += 1
 
@@ -521,7 +550,7 @@ class BacktestEngine:
     def _open_position(
         self, signal: Dict, lot_size: float, sl: float, tp: float,
         entry_time: datetime, regime: MarketRegime = MarketRegime.RANGE_WIDE,
-        sltp_info: Optional[Dict] = None,
+        sltp_info: Optional[Dict] = None, bar_index: int = 0,
     ) -> None:
         """Open new position with multi-stage exit tracking."""
         entry_price = signal["price"]
@@ -546,6 +575,8 @@ class BacktestEngine:
             "confidence": signal["confidence"],
             "sl_distance": sl_distance,
             "regime": regime,
+            # Structure exit tracking
+            "entry_bar_index": bar_index,
             # Multi-stage exit
             "stage": 0,
             "peak_profit_price": entry_price,
@@ -564,7 +595,11 @@ class BacktestEngine:
             f"TP: {tp:.2f} | Lot: {lot_size} | Regime: {regime.value}"
         )
 
-    def _update_positions(self, current_price: float, current_bar: Dict) -> None:
+    def _update_positions(
+        self, current_price: float, current_bar: Dict,
+        bar_index: int = 0, smc_analysis: Optional[Dict] = None,
+        regime: Optional[MarketRegime] = None,
+    ) -> None:
         """Update positions with multi-stage flexible exit strategy."""
         bar_high = current_bar["high"][0]
         bar_low = current_bar["low"][0]
@@ -590,6 +625,41 @@ class BacktestEngine:
                 if bar_high >= sl:
                     self._close_position(position, sl, "Stop Loss")
                     continue
+
+            # --- STRUCTURE EXIT (opposite CHoCH with min RR + min hold) ---
+            if self._structure_exit_config and smc_analysis:
+                min_hold_bars = self._structure_exit_config.get("min_hold_bars", 2)
+                bars_held = bar_index - position.get("entry_bar_index", bar_index)
+
+                if bars_held >= min_hold_bars:
+                    # Check opposite CHoCH
+                    has_opposite_choch = False
+                    if direction == "BUY":
+                        has_opposite_choch = (
+                            smc_analysis.get("bearish", {})
+                            .get("structure", {})
+                            .get("choch", False)
+                        )
+                    else:
+                        has_opposite_choch = (
+                            smc_analysis.get("bullish", {})
+                            .get("structure", {})
+                            .get("choch", False)
+                        )
+
+                    if has_opposite_choch:
+                        # Calculate current RR
+                        if direction == "BUY":
+                            pnl_fraction = (current_price - entry_price) / sl_distance if sl_distance > 0 else 0
+                        else:
+                            pnl_fraction = (entry_price - current_price) / sl_distance if sl_distance > 0 else 0
+
+                        min_rr = self._get_structure_exit_min_rr(
+                            regime or position.get("regime", MarketRegime.RANGE_WIDE)
+                        )
+                        if pnl_fraction >= min_rr:
+                            self._close_position(position, current_price, "Structure Exit")
+                            continue
 
             # --- CURRENT PROFIT ---
             if direction == "BUY":
@@ -653,6 +723,25 @@ class BacktestEngine:
                 if bar_low <= tp:
                     self._close_position(position, tp, "Take Profit")
                     continue
+
+    def _get_structure_exit_min_rr(self, regime: MarketRegime) -> float:
+        """Get minimum RR for structure exit based on regime and config."""
+        cfg = self._structure_exit_config or {}
+
+        # Map regime to config category
+        if regime in (MarketRegime.STRONG_TREND_UP, MarketRegime.STRONG_TREND_DOWN):
+            return cfg.get("strong_trend_min_rr", 0.0)
+        elif regime in (MarketRegime.WEAK_TREND_UP, MarketRegime.WEAK_TREND_DOWN):
+            return cfg.get("weak_trend_min_rr", 0.5)
+        elif regime in (MarketRegime.RANGE_TIGHT, MarketRegime.RANGE_WIDE):
+            return cfg.get("range_min_rr", 1.0)
+        elif regime == MarketRegime.VOLATILE_BREAKOUT:
+            return cfg.get("volatile_min_rr", 0.3)
+        elif regime == MarketRegime.REVERSAL:
+            return cfg.get("reversal_min_rr", 0.0)
+        else:
+            # Conservative fallback = range
+            return cfg.get("range_min_rr", 1.0)
 
     def _close_position(self, position: Dict, exit_price: float, reason: str) -> None:
         """Close position and record trade."""

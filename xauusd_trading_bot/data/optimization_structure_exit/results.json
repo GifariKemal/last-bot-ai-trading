@@ -1,0 +1,27 @@
+{
+  "best_score": 100.56,
+  "baseline_score": 45.43,
+  "improvement": 55.13,
+  "best_params": {
+    "strong_trend_min_rr": 0.8,
+    "weak_trend_min_rr": 0.2,
+    "range_min_rr": 1.1,
+    "volatile_min_rr": 0.6,
+    "reversal_min_rr": 0.6,
+    "min_hold_bars": 4
+  },
+  "best_trial": 37,
+  "total_trials": 50,
+  "elapsed_seconds": 792,
+  "n_windows": 3,
+  "data_months": 3,
+  "data_bars": 5648,
+  "timestamp": "2026-02-25T15:28:03",
+  "top_trials_convergence": {
+    "trial_28": {"score": 95.65, "strong": 0.8, "weak": 0.2, "range": 1.1, "volatile": 0.6, "reversal": 0.6, "hold": 4},
+    "trial_33": {"score": 96.93, "strong": 0.8, "weak": 0.2, "range": 1.2, "volatile": 0.9, "reversal": 0.7, "hold": 3},
+    "trial_34": {"score": 99.92, "strong": 1.0, "weak": 0.2, "range": 1.1, "volatile": 0.7, "reversal": 0.6, "hold": 3},
+    "trial_37": {"score": 100.56, "strong": 0.8, "weak": 0.2, "range": 1.1, "volatile": 0.6, "reversal": 0.6, "hold": 4},
+    "trial_39": {"score": 98.85, "strong": 1.0, "weak": 0.2, "range": 0.8, "volatile": 0.6, "reversal": 0.7, "hold": 4}
+  }
+}
