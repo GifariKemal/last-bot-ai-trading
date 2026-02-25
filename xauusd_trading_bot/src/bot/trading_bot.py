@@ -1097,7 +1097,14 @@ class TradingBot:
                     if not near_sl_already_tried:
                         entry_time = (tracked or {}).get("entry_time")
                         if entry_time:
-                            age_hours = (datetime.now() - entry_time).total_seconds() / 3600
+                            # Bug #48 fix: entry_time stored as ISO string, must parse before subtraction
+                            if isinstance(entry_time, str):
+                                entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
+                            now_utc = datetime.now(timezone.utc)
+                            # Ensure both are offset-aware for subtraction
+                            if entry_time.tzinfo is None:
+                                entry_time = entry_time.replace(tzinfo=timezone.utc)
+                            age_hours = (now_utc - entry_time).total_seconds() / 3600
                             if age_hours >= 3.0:
                                 self.logger.info(
                                     f"#{ticket} Near-SL early exit: RR={rr_ratio:.2f}, age={age_hours:.1f}h"
