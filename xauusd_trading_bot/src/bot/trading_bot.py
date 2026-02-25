@@ -6,7 +6,7 @@ Main bot controller that orchestrates all components.
 import time
 import csv
 import os
-from typing import Dict
+from typing import Dict, Optional
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -575,17 +575,43 @@ class TradingBot:
                     # Full position management with fresh analysis
                     self._manage_positions(market_data, current_positions)
 
+                    # Build position info for combined telegram message
+                    position_info = self._build_position_info(current_positions)
+
                     # Startup warmup: first M15 cycle is analysis-only, no new entries.
                     # Prevents blind entry on restart before bot has observed market context.
+                    gate_result = None
                     if self._startup_warmup:
                         self._startup_warmup = False
                         self.logger.info("Startup warmup: analysis complete, skipping signals until next M15 candle")
-                        continue
+                        gate_result = {"passed": False, "reason": "Warmup \u2014 analisis pertama, menunggu candle berikutnya"}
+                    else:
+                        # Generate and evaluate new signals (dynamic max positions)
+                        max_pos = self._get_dynamic_max_positions(self.last_volatility_level, account_info)
+                        if len(current_positions) < max_pos:
+                            gate_result = self._process_new_signals(market_data, current_positions, account_info)
+                        else:
+                            gate_result = {"passed": False, "reason": f"BULL: Max position reached | BEAR: Max position reached"}
 
-                    # Generate and evaluate new signals (dynamic max positions)
-                    max_pos = self._get_dynamic_max_positions(self.last_volatility_level, account_info)
-                    if len(current_positions) < max_pos:
-                        self._process_new_signals(market_data, current_positions, account_info)
+                    # Send combined telegram: analysis + position + gates
+                    self.telegram.send_signal_analysis(
+                        {
+                            "current_price": market_data["current_price"],
+                            "technical_indicators": market_data["technical_indicators"],
+                            "smc_analysis": market_data["smc_analysis"],
+                            "confluence_scores": market_data["confluence_scores"],
+                            "market_analysis": market_data["market_analysis"],
+                            "trend_analysis": market_data["trend_analysis"],
+                            "mtf_analysis": market_data["mtf_analysis"],
+                            "volatility_analysis": market_data.get("volatility_analysis", {}),
+                            "market_data": market_data["market_data"],
+                            "session_name": market_data.get("session_name", "Unknown"),
+                            "threshold": market_data.get("threshold", 0.55),
+                            "regime": market_data.get("regime", "unknown"),
+                        },
+                        gate_result=gate_result,
+                        position_info=position_info,
+                    )
 
                 # 7. Record successful loop
                 self.health_monitor.record_loop_iteration()
@@ -812,25 +838,7 @@ class TradingBot:
                 trend_analysis, h1_bias,
             )
 
-            # Send Telegram analysis
-            self.telegram.send_signal_analysis({
-                "current_price": current_price,
-                "technical_indicators": technical_indicators,
-                "smc_analysis": smc_analysis,
-                "confluence_scores": confluence_scores,
-                "market_analysis": market_analysis,
-                "trend_analysis": trend_analysis,
-                "mtf_analysis": mtf_analysis,
-                "volatility_analysis": volatility_analysis,
-                "market_data": {
-                    "bid": tick.get("bid", 0) if tick else 0,
-                    "ask": tick.get("ask", 0) if tick else 0,
-                    "spread": tick.get("spread", 0.02) if tick else 0.02,
-                },
-                "session_name": session_name,
-                "threshold": effective_threshold,
-                "regime": current_regime.value,
-            })
+            # Telegram data stored in return dict (sent by main loop after gate check)
 
             return {
                 "current_price": current_price,
@@ -845,6 +853,8 @@ class TradingBot:
                 "confluence_scores": confluence_scores,
                 "regime_result": regime_result,
                 "regime": current_regime.value,
+                "session_name": session_name,
+                "threshold": effective_threshold,
                 "market_data": {
                     "bid": tick.get("bid", 0) if tick else 0,
                     "ask": tick.get("ask", 0) if tick else 0,
@@ -1107,7 +1117,7 @@ class TradingBot:
                                 self.logger.info(
                                     f"#{ticket} RR Trail: SL\u2192{new_sl:.2f} (peak:{peak_price:.2f}, trail:{trail_distance:.1f}, f={trail_factor})"
                                 )
-                                self.telegram.send_modification(ticket, "TRAILING", f"SL \u2192 {new_sl:.2f}")
+                                self.telegram.send_modification(ticket, "TRAILING", f"SL \u2192 {new_sl:.2f} (peak:{peak_price:.2f} | trail:{trail_distance:.1f} | f={trail_factor})")
                     else:
                         new_sl = round(peak_price + trail_distance, 2)
                         if new_sl <= current_sl - MIN_TRAIL_INCREMENT or current_sl == 0:
@@ -1118,7 +1128,7 @@ class TradingBot:
                                 self.logger.info(
                                     f"#{ticket} RR Trail: SL\u2192{new_sl:.2f} (peak:{peak_price:.2f}, trail:{trail_distance:.1f}, f={trail_factor})"
                                 )
-                                self.telegram.send_modification(ticket, "TRAILING", f"SL \u2192 {new_sl:.2f}")
+                                self.telegram.send_modification(ticket, "TRAILING", f"SL \u2192 {new_sl:.2f} (peak:{peak_price:.2f} | trail:{trail_distance:.1f} | f={trail_factor})")
 
                 # Near-SL early exit: within 20% of full SL AND held 3+ hours → cut loss early.
                 # Accepts ~80% of max loss rather than waiting for full SL hit.
@@ -1353,8 +1363,47 @@ class TradingBot:
             return "TRAILING" if rr_ratio >= 1.5 else "BE_REACHED"
         return "OPEN"
 
-    def _process_new_signals(self, market_data: Dict, current_positions: list, account_info: Dict) -> None:
-        """Process new trading signals."""
+    def _build_position_info(self, current_positions: list):
+        """Build position info dict for telegram display."""
+        if not current_positions:
+            return None
+        pos = current_positions[0]  # Max 1 position
+        ticket = pos.get("ticket", 0)
+        tracker_data = self.position_tracker.positions.get(ticket, {})
+        entry_sl = tracker_data.get("entry_sl", pos.get("sl", 0))
+        entry_price = pos.get("open_price", pos.get("price_open", 0))
+        current_price = pos.get("current_price", pos.get("price_current", 0))
+        sl_dist = abs(entry_price - entry_sl) if entry_sl and entry_price else 0
+        direction = str(pos.get("type", "BUY")).upper()
+        if "BUY" in direction:
+            profit_dist = current_price - entry_price
+        else:
+            profit_dist = entry_price - current_price
+        rr_current = profit_dist / sl_dist if sl_dist > 0 else 0
+
+        stage = "OPEN"
+        if tracker_data.get("partial_closed"):
+            stage = "PARTIAL"
+        elif tracker_data.get("pre_close_locked"):
+            stage = "LOCKED"
+        elif tracker_data.get("breakeven_set"):
+            stage = "TRAILING" if rr_current >= 1.5 else "BE"
+
+        dir_label = "BUY" if "BUY" in direction else "SELL"
+        return {
+            "ticket": ticket,
+            "direction": dir_label,
+            "entry_price": entry_price,
+            "current_price": current_price,
+            "profit": pos.get("profit", 0),
+            "sl": pos.get("sl", 0),
+            "tp": pos.get("tp", 0),
+            "rr_current": rr_current,
+            "stage": stage,
+        }
+
+    def _process_new_signals(self, market_data: Dict, current_positions: list, account_info: Dict):
+        """Process new trading signals. Returns gate result dict or None."""
         try:
             # Generate signal (matches backtest pipeline)
             regime_result = market_data.get("regime_result", {})
@@ -1381,14 +1430,14 @@ class TradingBot:
             else:
                 self.logger.info(f"Signal check: {summary}")
 
-            # If no entry signal, send gate rejection to Telegram and return
+            # If no entry signal, return gate rejection info (shown in combined telegram)
             if not decision.get("has_entry"):
                 entry_sig = decision.get("entry_signal")
                 if entry_sig:
                     gate_reasons = entry_sig.get("reasons", ["No conditions met"])
                     gate_msg = gate_reasons[0] if gate_reasons else "Unknown"
-                    self.telegram.send_gate_rejection(gate_msg)
-                return
+                    return {"passed": False, "reason": gate_msg}
+                return {"passed": False, "reason": "No conditions met"}
 
             entry_signal = decision["entry_signal"]
 
@@ -1404,7 +1453,7 @@ class TradingBot:
                         self.logger.info(
                             f"SL COOLDOWN ACTIVE: {sig_dir} blocked ({remaining:.1f} candles remaining)"
                         )
-                        return
+                        return {"passed": False, "reason": f"BULL: SL cooldown {sig_dir} ({remaining:.0f} candles) | BEAR: SL cooldown {sig_dir} ({remaining:.0f} candles)"}
                     else:
                         # Cooldown expired, remove
                         del self._sl_cooldown[sig_dir]
@@ -1419,7 +1468,7 @@ class TradingBot:
                     f"DIR LIMIT: {sig_dir} blocked — {len(same_dir_positions)}/{self._max_per_direction} "
                     f"already open in this direction"
                 )
-                return
+                return {"passed": False, "reason": f"BULL: Direction limit ({sig_dir}) | BEAR: Direction limit ({sig_dir})"}
 
             # Check position spacing (prevent entries at same price level)
             entry_price_check = entry_signal["price"]
@@ -1433,7 +1482,7 @@ class TradingBot:
                             f"#{p.get('ticket')} @ {existing_price:.2f} "
                             f"({distance:.1f} pips, min {self._min_spacing_pips})"
                         )
-                        return
+                        return {"passed": False, "reason": f"BULL: Too close to #{p.get('ticket')} ({distance:.1f}pts) | BEAR: Spacing block"}
 
             # Calculate SL/TP
             vol_level = market_data["volatility_analysis"].get("level")
@@ -1480,8 +1529,10 @@ class TradingBot:
                     consecutive_losses=consec_losses,
                 )
                 if not micro_check.get("approved"):
-                    self.logger.info(f"Micro account rejected: {micro_check.get('reasons', [])}")
-                    return
+                    reasons = micro_check.get('reasons', [])
+                    self.logger.info(f"Micro account rejected: {reasons}")
+                    reason_str = reasons[0] if reasons else "Micro account limit"
+                    return {"passed": False, "reason": f"BULL: {reason_str} | BEAR: {reason_str}"}
 
             # Calculate position size
             vol_value = vol_level.value if hasattr(vol_level, "value") else str(vol_level)
@@ -1585,6 +1636,7 @@ class TradingBot:
                     "regime": market_data.get("regime", ""),
                     "comment": trade_comment,
                 })
+                return {"passed": True, "reason": "All gates passed \u2014 entry executed"}
             else:
                 self.logger.warning(f"ORDER FAILED: {result.get('error')}")
                 self.telegram.send_bot_status(
@@ -1593,12 +1645,14 @@ class TradingBot:
                     f"\u2514 Error: {result.get('error', 'Unknown')}\n"
                     f"\u2514 Score: {entry_signal.get('confidence', 0):.2f} | {trade_comment}"
                 )
+                return {"passed": False, "reason": f"BULL: Order failed ({result.get('error', 'Unknown')}) | BEAR: Order failed"}
 
         except Exception as e:
             self.logger.error(f"Error processing signals: {e}")
             import traceback
             self.logger.debug(traceback.format_exc())
             self.health_monitor.record_error(e, "process_signals")
+            return {"passed": False, "reason": f"BULL: Signal error ({type(e).__name__}) | BEAR: Signal error"}
 
     def get_status(self) -> Dict:
         """

@@ -135,8 +135,10 @@ class TelegramNotifier:
 
     # ─── Signal Analysis (every 15 min) ─────────────────────────
 
-    def send_signal_analysis(self, market_data: Dict) -> bool:
-        """Send structured 15-minute candle analysis."""
+    def send_signal_analysis(self, market_data: Dict,
+                             gate_result: Optional[Dict] = None,
+                             position_info: Optional[Dict] = None) -> bool:
+        """Send structured 15-minute candle analysis with position & gate info."""
         try:
             price = market_data["current_price"]
             tech = market_data["technical_indicators"]
@@ -348,6 +350,68 @@ class TelegramNotifier:
                         delta_str = f" | {arrow}{abs(diff):.2f} vs prev"
                 L.append(f"\u23f8 <b>NO TRADE</b> \u2014 {miss_str}{delta_str}")
 
+            # [ POSISI ] — always shown
+            L.append("")
+            if position_info:
+                dir_em = "\U0001f7e2" if position_info["direction"] == "BUY" else "\U0001f534"
+                dir_label = "LONG" if position_info["direction"] == "BUY" else "SHORT"
+                ticket = position_info["ticket"]
+                ep = position_info["entry_price"]
+                cp = position_info["current_price"]
+                pnl = position_info["profit"]
+                rr = position_info.get("rr_current", 0)
+                stage = position_info.get("stage", "OPEN")
+                sl_val = position_info.get("sl", 0)
+                tp_val = position_info.get("tp", 0)
+                L.append(f"[ POSISI ] {dir_em} {dir_label} #{ticket}")
+                L.append(f"\u203a Entry: {ep:.2f} \u2192 {cp:.2f} ({pnl:+.2f} USD | {rr:+.2f}R)")
+                L.append(f"\u203a SL: {sl_val:.2f} | TP: {tp_val:.2f} | Stage: {stage}")
+            else:
+                L.append("[ POSISI ]")
+                L.append("\u203a Tidak ada posisi terbuka")
+
+            # [ ENTRY GATES ] — only when signal detected but gates blocked
+            if gate_result is not None and has_signal:
+                passed = gate_result.get("passed", False)
+                if passed:
+                    L.append("")
+                    L.append("[ ENTRY GATES ] \u2705")
+                    reason = gate_result.get("reason", "")
+                    if reason:
+                        L.append(f"\u203a {reason}")
+                    else:
+                        L.append("\u203a All gates passed")
+                else:
+                    reason = gate_result.get("reason", "")
+                    if reason:
+                        L.append("")
+                        L.append("[ ENTRY GATES ] \u274c")
+                        # Parse BULL/BEAR from "BULL: ... | BEAR: ..."
+                        bull_raw, bear_raw = "", ""
+                        for part in reason.split(" | "):
+                            p = part.strip()
+                            if p.startswith("BULL:"):
+                                bull_raw = p[5:].strip()
+                                if "checks failed:" in bull_raw:
+                                    bull_raw = bull_raw.split("checks failed:")[-1].strip()
+                            elif p.startswith("BEAR:"):
+                                bear_raw = p[5:].strip()
+                        if bull_raw:
+                            items = [self._shorten_gate_reason(r) for r in bull_raw.split(", ")]
+                            L.append(f"\U0001f7e2 BUY \u2014 {' | '.join(items)}")
+                        if bear_raw:
+                            items = [self._shorten_gate_reason(r) for r in bear_raw.split(", ")]
+                            L.append(f"\U0001f534 SELL \u2014 {' | '.join(items)}")
+                        # Fallback: if no BULL/BEAR parsed, show raw reason
+                        if not bull_raw and not bear_raw:
+                            L.append(f"\u203a {self._shorten_gate_reason(reason)}")
+            elif gate_result is not None and not has_signal:
+                # No signal detected — gate_result may have a warmup/info reason
+                reason = gate_result.get("reason", "")
+                if reason and "warmup" in reason.lower():
+                    L.append("")
+                    L.append(f"[ INFO ] \u203a {reason}")
+
             # Footer
             L.append("")
             L.append(f"\u23f0 {self._ts()}")
@@ -407,34 +471,8 @@ class TelegramNotifier:
         return f"\u2717 {r[:40]}"
 
     def send_gate_rejection(self, reason: str) -> bool:
-        """Send compact gate rejection notification."""
-        try:
-            # Parse BULL/BEAR from "BULL: ... | BEAR: ..."
-            bull_raw, bear_raw = "", ""
-            for part in reason.split(" | "):
-                p = part.strip()
-                if p.startswith("BULL:"):
-                    bull_raw = p[5:].strip()
-                    if "checks failed:" in bull_raw:
-                        bull_raw = bull_raw.split("checks failed:")[-1].strip()
-                elif p.startswith("BEAR:"):
-                    bear_raw = p[5:].strip()
-
-            L = ["\U0001f512 <b>ENTRY GATES</b>", ""]
-
-            # BUY gates
-            if bull_raw:
-                bull_items = [self._shorten_gate_reason(r) for r in bull_raw.split(", ")]
-                L.append(f"\U0001f7e2 BUY \u2014 {' | '.join(bull_items)}")
-            # SELL gates
-            if bear_raw:
-                bear_items = [self._shorten_gate_reason(r) for r in bear_raw.split(", ")]
-                L.append(f"\U0001f534 SELL \u2014 {' | '.join(bear_items)}")
-
-            return self._send("\n".join(L))
-        except Exception as e:
-            self.logger.warning(f"Telegram gate rejection error: {e}")
-            return False
+        """Deprecated: gate info now included in send_signal_analysis(). No-op."""
+        return False
 
     # ─── Entry Notification ──────────────────────────────────────
 
