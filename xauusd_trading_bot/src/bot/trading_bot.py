@@ -110,6 +110,12 @@ class TradingBot:
         self.be_trigger_rr = exit_cfg.get("be_trigger_rr", 1.0)
         self.partial_close_rr = exit_cfg.get("partial_close_rr", 1.5)
 
+        # Stale trade exit config
+        stale_cfg = config.get("risk", {}).get("stale_trade", {})
+        self.stale_trade_enabled = stale_cfg.get("enabled", False)
+        self.stale_trade_min_hours = stale_cfg.get("min_hours", 3)
+        self.stale_trade_min_peak_rr = stale_cfg.get("min_peak_rr", 0.3)
+
         # Position Management
         self.position_tracker = PositionTracker()
         self.recovery_manager = RecoveryManager(config.get("risk", {}), self.position_tracker)
@@ -1129,6 +1135,60 @@ class TradingBot:
                                     f"#{ticket} RR Trail: SL\u2192{new_sl:.2f} (peak:{peak_price:.2f}, trail:{trail_distance:.1f}, f={trail_factor})"
                                 )
                                 self.telegram.send_modification(ticket, "TRAILING", f"SL \u2192 {new_sl:.2f} (peak:{peak_price:.2f} | trail:{trail_distance:.1f} | f={trail_factor})")
+
+                # Stale trade exit: position open N hours but peak profit never reached min threshold.
+                # Momentum is dead — cut loss early rather than waiting for full SL hit.
+                if self.stale_trade_enabled and profit_distance < 0:
+                    stale_already_tried = (tracked or {}).get("stale_exit_attempted", False)
+                    if not stale_already_tried:
+                        entry_time = (tracked or {}).get("entry_time")
+                        if entry_time:
+                            # Bug #48 safe: parse ISO string + ensure tz-aware
+                            if isinstance(entry_time, str):
+                                entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
+                            now_utc = datetime.now(timezone.utc)
+                            if entry_time.tzinfo is None:
+                                entry_time = entry_time.replace(tzinfo=timezone.utc)
+                            age_hours = (now_utc - entry_time).total_seconds() / 3600
+
+                            peak_profit_pips = (tracked or {}).get("peak_profit", 0)
+                            peak_rr = peak_profit_pips / sl_distance if sl_distance > 0 else 0
+
+                            if age_hours >= self.stale_trade_min_hours and peak_rr < self.stale_trade_min_peak_rr:
+                                self.logger.info(
+                                    f"#{ticket} Stale trade exit: peak={peak_rr:.2f}R (min {self.stale_trade_min_peak_rr}R), age={age_hours:.1f}h"
+                                )
+                                self.position_tracker.update_position(
+                                    ticket, {"stale_exit_attempted": True}
+                                )
+                                result = self.order_executor.execute_exit(
+                                    ticket, f"Stale trade exit (peak {peak_rr:.2f}R in {age_hours:.1f}h)"
+                                )
+                                if result.get("success"):
+                                    tracked_pos = self.position_tracker.get_position(ticket)
+                                    if tracked_pos and "profit" not in result:
+                                        result["profit"] = tracked_pos.get("profit", 0)
+                                    self.drawdown_monitor.record_trade_result(result)
+                                    self.position_tracker.remove_position(ticket, result)
+                                    self.telegram.send_recovery_action(
+                                        ticket, "STALE EXIT",
+                                        f"P/L: ${result.get('profit', 0):.2f} | No momentum (peak {peak_rr:.2f}R in {age_hours:.1f}h)"
+                                    )
+                                    self._log_trade_to_csv("CLOSE", {
+                                        "ticket": ticket,
+                                        "direction": direction,
+                                        "price": current_price,
+                                        "profit": result.get("profit", ""),
+                                        "session": (tracked or {}).get("entry_session", ""),
+                                        "smc_signals": (tracked or {}).get("entry_smc_signals", ""),
+                                        "comment": "Stale trade exit",
+                                    })
+                                    self.journal.log_exit(ticket, {
+                                        "price": current_price,
+                                        "pnl_usd": result.get("profit", 0),
+                                        "exit_reason": f"Stale trade exit (peak {peak_rr:.2f}R, {age_hours:.1f}h)",
+                                    })
+                                    continue
 
                 # Near-SL early exit: within 20% of full SL AND held 3+ hours → cut loss early.
                 # Accepts ~80% of max loss rather than waiting for full SL hit.

@@ -77,6 +77,14 @@ exit_stages:
   partial_close_rr: 2.73     # Partial close at this RR (V3: later partial)
   trail_activation_rr: 2.72  # Start trailing at this RR
 
+# Stale Trade Exit — close positions with dead momentum before full SL hit
+# If a trade has been open min_hours but peak profit never reached min_peak_rr,
+# and the position is currently in loss, close early to save capital.
+stale_trade:
+  enabled: true
+  min_hours: 3              # Minimum age before stale check applies
+  min_peak_rr: 0.3          # Peak must have reached 0.3R to be "not stale"
+
 # Micro Account Safety (V3)
 micro_account:
   enabled: true

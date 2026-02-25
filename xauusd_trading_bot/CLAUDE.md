@@ -138,6 +138,14 @@ main.py
 - `partial_close_rr: max(tp_rr * 0.65, 1.0)` — Dynamic partial (NOT 2.73R fixed)
 - `trail_activation_rr: 2.72` — Start trailing at 2.72R
 
+### Stale Trade Exit (trading_bot.py `_manage_positions`)
+Auto-close positions with dead momentum: open `min_hours` but peak profit never reached `min_peak_rr`, and currently in loss.
+- `stale_trade.enabled: true`
+- `stale_trade.min_hours: 3` — minimum age before stale check applies
+- `stale_trade.min_peak_rr: 0.3` — peak must reach 0.3R to be "not stale"
+- Config: `risk_config.yaml` → `stale_trade:` section
+- Fires BEFORE near-SL early exit; uses same Bug #48-safe entry_time parsing
+
 ### Regime-Adaptive Structure Exit (exit_signals.py `STRUCTURE_EXIT_MIN_RR`)
 Min RR before structure/opposite-signal exit fires. Optuna-optimized (50 trials, 3-month WF, score 100.56 vs baseline 45.43).
 - Strong Trend: **0.8R** — CHoCH in strong trends is often pullback, not reversal; wait for profit
