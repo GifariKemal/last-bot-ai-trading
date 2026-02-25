@@ -105,6 +105,7 @@ SCRATCH_FLAT_PTS      = 3.0   # "Flat" = less than 3pt movement either way
 # ── Position management ───────────────────────────────────────────────────────
 
 _scratched_tickets: set[int] = set()  # prevent repeat scratch attempts
+_stale_tightened_tickets: set[int] = set()  # prevent repeat stale tighten (fire once)
 _bot_closed_tickets: set[int] = set()  # tickets closed by bot (scratch/claude/etc)
 
 
@@ -203,7 +204,9 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
         return
 
     # ── Stage 0b: Time-based SL tighten (stale after _stale_min) ────────────
-    if (age_min >= _stale_min
+    # Fire ONCE per ticket — prevents recursive halving and log spam
+    if (ticket not in _stale_tightened_tickets
+            and age_min >= _stale_min
             and profit_pts < sl_dist * STALE_PROGRESS_MULT
             and _sl_is_below_entry(direction, current_sl, entry)):
         # Reduce max loss: move SL to half of original distance
@@ -211,6 +214,7 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
         if direction == "LONG":
             new_sl = round(entry - half_dist, 2)
             if new_sl > current_sl + 0.5:
+                _stale_tightened_tickets.add(ticket)
                 logger.bind(kind="TRADE").info(
                     f"STALE TIGHTEN | ticket={ticket} | {age_min:.0f}min | "
                     f"SL {current_sl:.2f}->{new_sl:.2f} (halved risk)"
@@ -227,6 +231,7 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
         else:
             new_sl = round(entry + half_dist, 2)
             if new_sl < current_sl - 0.5:
+                _stale_tightened_tickets.add(ticket)
                 logger.bind(kind="TRADE").info(
                     f"STALE TIGHTEN | ticket={ticket} | {age_min:.0f}min | "
                     f"SL {current_sl:.2f}->{new_sl:.2f} (halved risk)"
