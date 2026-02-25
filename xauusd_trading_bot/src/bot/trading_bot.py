@@ -844,6 +844,7 @@ class TradingBot:
                 "mtf_analysis": mtf_analysis,
                 "confluence_scores": confluence_scores,
                 "regime_result": regime_result,
+                "regime": current_regime.value,
                 "market_data": {
                     "bid": tick.get("bid", 0) if tick else 0,
                     "ask": tick.get("ask", 0) if tick else 0,
