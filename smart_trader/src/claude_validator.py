@@ -56,11 +56,13 @@ RECENT CONTEXT:
 {context}
 
 BACKTEST INSIGHTS (6-month data, use as guidance):
-- OB = strongest signal (+9.2pt edge). Setups with OB significantly outperform.
-- M15 confirmation adds +4.0pt edge. BOS is neutral but confirms structure.
+- OB = strongest signal (+9.2pt edge). OB improves any setup, but is NOT required.
+- M15 confirmation adds +4.0pt edge. BOS confirms structure direction.
+- BOS/CHoCH + M15 = VALID structural entry (conf 0.65+). OB enriches but don't WAIT for OB.
 - FVG alone = negative edge. CHoCH alone = negative. They need supporting signals.
+- Structure (BOS/CHoCH) is the MOST IMPORTANT factor — it confirms institutional flow direction.
 - LONG has been more profitable than SHORT historically.
-- NEW_YORK is the best session. OVERLAP is the worst.
+- NEW_YORK is the best session. OVERLAP is the worst (but still tradeable with strong signals).
 - RSI sweet spot: 55-85 for XAUUSD (trends run hot).
 
 DECISION RULES:
@@ -96,7 +98,7 @@ def build_prompt(setup: dict) -> str:
 
     # Signal quality breakdown
     has_structure = setup.get("has_structure", False)
-    structure_status = "YES" if has_structure else "NONE (no BOS/CHoCH — weak setup)"
+    structure_status = "YES (BOS/CHoCH confirmed)" if has_structure else "NONE (no BOS/CHoCH)"
 
     # EMA alignment status
     ema_aligned = setup.get("ema_aligned", False)

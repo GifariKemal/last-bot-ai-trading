@@ -10,10 +10,11 @@ from loguru import logger
 
 _BULL_TYPES = {"BULL_OB", "BULL_FVG", "BULL_BREAKER", "BOS_BULL", "CHOCH_BULL", "BULL_LIQSWEEP"}
 _BEAR_TYPES = {"BEAR_OB", "BEAR_FVG", "BEAR_BREAKER", "BOS_BEAR", "CHOCH_BEAR", "BEAR_LIQSWEEP"}
-_SPIKE_WINDOWS = [
-    (7, 45, 8,  0),   # London spike
-    (12, 45, 13, 0),   # NY spike
-]
+# _SPIKE_WINDOWS = [
+#     (7, 45, 8,  0),   # London spike
+#     (12, 45, 13, 0),   # NY spike
+# ]
+_SPIKE_WINDOWS = []
 
 _SESSIONS = [
     (12, 0, 16, 0,  "OVERLAP",   "HIGHEST"),

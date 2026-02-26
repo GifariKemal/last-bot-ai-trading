@@ -9,7 +9,7 @@ account:
   server: ICMarketsSC-Demo
 
 trading:
-  zone_proximity_pts: 7.0   # Optuna-optimized (100-trial, Trial #64)
+  zone_proximity_pts: 10.0  # widened from 7.0 — was missing setups 8-9pt away
   min_confidence: 0.70       # min Claude confidence to execute
   max_positions: 1           # $100 balance — margin ~$51/trade, only 1 position
   max_per_direction: 1

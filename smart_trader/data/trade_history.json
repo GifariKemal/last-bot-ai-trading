@@ -194,9 +194,9 @@
   },
   {
     "ticket": 1499819829,
-    "status": "open",
+    "status": "closed",
     "entry_time": "2026-02-26T00:30:31.597422+00:00",
-    "exit_time": null,
+    "exit_time": "2026-02-26T03:41:03.679217+00:00",
     "direction": "SHORT",
     "entry_price": 5186.7,
     "sl": 5257.11,
@@ -218,9 +218,9 @@
     "atr": 23.86500000000004,
     "pd_zone": "PREMIUM",
     "exit_price": null,
-    "pnl_pts": null,
-    "pnl_usd": null,
-    "close_type": null,
-    "duration_min": null
+    "pnl_pts": 0,
+    "pnl_usd": 0,
+    "close_type": "bot_closed",
+    "duration_min": 190.54454898333333
   }
 ]

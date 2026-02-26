@@ -576,6 +576,24 @@ def run_scan_cycle(cfg: dict) -> None:
         # Use nearby zone types for signal counting — prevents inflating count with distant zones
         nearby_zone_types = [z["type"] for z in dir_zones]
 
+        # ── Cross-zone signal aggregation: enrich with wider-range zones ────
+        # Zones within 1x ATR but beyond proximity may confirm structure
+        # (e.g., BOS_BEAR@5155 near price + BEAR_FVG@5192 already broken through)
+        wide_range = max(atr_val, proximity * 2)
+        wide_zones = scan.find_nearby_zones(price, zones, wide_range)
+        for wz in wide_zones:
+            wd = scan.direction_for_zone(wz)
+            if wd != direction:
+                continue
+            wz_type = wz.get("type", "")
+            if wz_type not in nearby_zone_types:
+                nearby_zone_types.append(wz_type)
+                logger.debug(
+                    f"  Cross-zone: added {wz_type}@"
+                    f"{wz.get('high') or wz.get('level', 0):.0f} "
+                    f"({wz.get('distance_pts', 0):.1f}pt) to {direction} signals"
+                )
+
         # M15 confirmation
         m15_conf = ind.m15_confirmation(df_m15, direction)
 
