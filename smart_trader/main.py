@@ -23,7 +23,7 @@ os.environ.pop("CLAUDE_CODE_SESSION", None)
 # Add src/ to path so modules resolve from there
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from pathlib import Path
 from loguru import logger
@@ -101,6 +101,7 @@ _session_trades: int = 0  # entries placed this session
 _tracked_positions: dict[int, dict] = {}
 _last_close_info: Optional[dict] = None    # {time, direction, zone_type, pnl_pts, entry_price}
 _last_entry_zone_type: Optional[str] = None  # zone type of most recent entry
+_IC_MARKETS_OFFSET = timedelta(hours=2)      # IC Markets server time is UTC+2
 
 # ── Adaptive system modules (initialized in main()) ─────────────────────────
 _regime_det: Optional[rdet.RegimeDetector] = None
@@ -109,7 +110,9 @@ _adaptive: Optional[ae.AdaptiveEngine] = None
 
 
 def _zone_key(zone: dict, direction: str) -> str:
-    return f"{direction}_{zone.get('type')}_{zone.get('detected_at', '')}"
+    """Stable key using price level — detected_at changes each cycle and would unblock zones."""
+    level = zone.get("level") or zone.get("high") or zone.get("low") or 0
+    return f"{direction}_{zone.get('type')}_{level:.1f}"
 
 
 def _warmup_cooldown_from_history(magic: int) -> None:
@@ -119,7 +122,6 @@ def _warmup_cooldown_from_history(magic: int) -> None:
     with our magic number within the last 24 hours.
     """
     global _last_close_info
-    from datetime import timedelta
     try:
         now = datetime.now(timezone.utc)
         from_time = now - timedelta(days=1)
@@ -146,7 +148,8 @@ def _warmup_cooldown_from_history(magic: int) -> None:
         for d in reversed(deals):
             if d.entry == 1 and d.magic == magic:  # DEAL_ENTRY_OUT + our bot
                 close_price = d.price
-                direction = "LONG" if d.type == 1 else "SHORT"  # SELL=close long
+                # OUT deal: type=1(SELL)=close LONG pos, type=0(BUY)=close SHORT pos
+                direction = "LONG" if d.type == 1 else "SHORT"
 
                 # Find matching IN deal for entry price
                 entry_price = close_price  # fallback
@@ -185,7 +188,6 @@ def _warmup_cooldown_from_history(magic: int) -> None:
 
 def _next_h1_boundary(dt: datetime) -> datetime:
     """Return the start of the next H1 candle after dt."""
-    from datetime import timedelta
     return dt.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
@@ -255,15 +257,24 @@ def _track_and_detect_closes(symbol: str, magic: int) -> None:
             _tracked_positions[t]["sl"] = p["sl"]
             _tracked_positions[t]["tp"] = p["tp"]
             _tracked_positions[t]["volume"] = p["volume"]
+            # Track peak profit (highest P/L ever reached)
+            cur = p.get("price_current", p["price_open"])
+            pnl = (cur - p["price_open"]) if p["type"] == "LONG" \
+                else (p["price_open"] - cur)
+            prev_peak = _tracked_positions[t].get("peak_profit", 0)
+            if pnl > prev_peak:
+                _tracked_positions[t]["peak_profit"] = round(pnl, 2)
         else:
-            # New position — record actual UTC time (p.time is server-local on IC Markets)
+            # New position — use MT5 open time adjusted for IC Markets UTC+2 offset.
             _tracked_positions[t] = {
                 "direction":  p["type"],
                 "entry":      p["price_open"],
                 "sl":         p["sl"],
+                "entry_sl":   p["sl"],   # original SL — never updated, used for stable sl_dist
                 "tp":         p["tp"],
-                "time_open":  now,
+                "time_open":  p["time_open"] - _IC_MARKETS_OFFSET,
                 "volume":     p["volume"],
+                "peak_profit": 0.0,
             }
 
     # ── Detect disappeared positions ──────────────────────────────────────────
@@ -416,6 +427,7 @@ def run_scan_cycle(cfg: dict) -> None:
     db_path    = cfg["paths"]["zone_cache_db"]
     proximity  = t_cfg["zone_proximity_pts"]
     min_conf   = t_cfg["min_confidence"]
+    min_signals = 3                          # minimum SMC signals before calling Claude
     max_pos    = t_cfg["max_positions"]
     max_dir    = t_cfg["max_per_direction"]
     max_dd     = t_cfg["max_drawdown_pct"]
@@ -468,7 +480,7 @@ def run_scan_cycle(cfg: dict) -> None:
     atr_val   = ind.atr(df_h1, 14)
     rsi_val   = ind.rsi(df_h1, 14)
     pd_zone   = ind.premium_discount(df_h1)
-    h4_bias   = ind.h4_bias(df_h4) if not df_h4.empty else scan.get_last_h4_bias(db_path)
+    h4_bias   = "DISABLED"  # H4 bias disabled — not used in any gate/filter
     ema_trend = ind.h1_ema_trend(df_h1)
     session   = scan.current_session(now_utc)
 
@@ -479,9 +491,7 @@ def run_scan_cycle(cfg: dict) -> None:
     regime_label = regime_result["short_label"]
     has_choch = regime_result["components"].get("has_choch", False)
 
-    # ── Manage existing positions (with adaptive exit params) ─────────────────
-    exit_params = _adaptive.get_exit_params(regime_cat) if _adaptive else None
-    exe.manage_positions(symbol, cfg.get("mt5", {}), exit_params=exit_params)
+    # ── Manage existing positions — moved to main loop (1-min interval) ───────
 
     # ── Common status line (reused across log messages) ────────────────────────
     spread_val = price_info.get("spread", 0)
@@ -551,10 +561,6 @@ def run_scan_cycle(cfg: dict) -> None:
         else:
             short_zones.append(z)
 
-    # Also collect ALL zones (not just nearby) for structure signal counting
-    all_long_types = [z["type"] for z in zones if scan.direction_for_zone(z) == "LONG"]
-    all_short_types = [z["type"] for z in zones if scan.direction_for_zone(z) == "SHORT"]
-
     # ── Evaluate best zone per direction (combined signals) ──────────────────
     for direction, dir_zones in [("LONG", long_zones), ("SHORT", short_zones)]:
         if not dir_zones:
@@ -566,9 +572,8 @@ def run_scan_cycle(cfg: dict) -> None:
         if zkey in _attempted_zones:
             continue
 
-        # Use ALL zone types for signal counting (BOS/CHoCH don't need proximity)
-        all_zone_types = all_long_types if direction == "LONG" else all_short_types
-        h1_structure = primary.get("type", "")
+        # Use nearby zone types for signal counting — prevents inflating count with distant zones
+        nearby_zone_types = [z["type"] for z in dir_zones]
 
         # M15 confirmation
         m15_conf = ind.m15_confirmation(df_m15, direction)
@@ -576,9 +581,9 @@ def run_scan_cycle(cfg: dict) -> None:
         # OTE
         ote = ind.ote_zone(df_h1, direction)
 
-        # Signal count from ALL nearby zones of same direction
+        # Signal count from nearby zones of same direction only
         signal_count, signals = ind.count_signals(
-            direction, all_zone_types, m15_conf, ote, price, pd_zone, h1_structure
+            direction, nearby_zone_types, m15_conf, ote, price, pd_zone
         )
 
         # Market log — direction evaluation detail (SL/TP/RR not yet computed here)
@@ -590,6 +595,17 @@ def run_scan_cycle(cfg: dict) -> None:
         )
 
         zone = primary
+
+        # Minimum signal count gate — must have ≥3 SMC signals to call Claude
+        if signal_count < min_signals:
+            logger.info(
+                f"  Skip {direction} — {signal_count}/{min_signals} signals "
+                f"[{', '.join(signals)}] (need >={min_signals})"
+            )
+            logger.bind(kind="MARKET").debug(
+                f"  SKIP {direction} | reason=insufficient_signals({signal_count}/{min_signals})"
+            )
+            continue
 
         # RSI extreme gate
         if direction == "LONG" and rsi_val > 85:
@@ -618,6 +634,18 @@ def run_scan_cycle(cfg: dict) -> None:
             else:
                 logger.info(f"  Skip LONG — H1 EMA trend is BEARISH (counter-trend)")
                 logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=EMA_counter_trend(BEARISH)")
+                continue
+
+        # ── P/D Zone directional gate (SMC: BUY at Discount, SELL at Premium) ─
+        # CHoCH reversal bypasses gate — reversal can occur at either zone extreme
+        if not choch_detected:
+            if direction == "LONG" and pd_zone == "PREMIUM":
+                logger.info(f"  Skip LONG — price in PREMIUM zone (SMC: buy at discount only)")
+                logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=PD_zone_PREMIUM")
+                continue
+            if direction == "SHORT" and pd_zone == "DISCOUNT":
+                logger.info(f"  Skip SHORT — price in DISCOUNT zone (SMC: sell at premium only)")
+                logger.bind(kind="MARKET").debug(f"  SKIP SHORT | reason=PD_zone_DISCOUNT")
                 continue
 
         # ── Adaptive re-entry cooldown ────────────────────────────────────
@@ -689,7 +717,7 @@ def run_scan_cycle(cfg: dict) -> None:
             "atr":          atr_val,
             "session":      session["name"],
             "h4_bias":      h4_bias,
-            "h1_structure": h1_structure,
+            "h1_structure": primary.get("type", ""),
             "ema_trend":    ema_trend,
             "rsi":          rsi_val,
             "pd_zone":      pd_zone,
@@ -903,7 +931,7 @@ def _send_heartbeat_report(cfg: dict) -> None:
         rsi_val   = ind.rsi(df_h1, 14)            if not df_h1.empty else 50.0
         pd_zone   = ind.premium_discount(df_h1)   if not df_h1.empty else "EQUILIBRIUM"
         ema_trend = ind.h1_ema_trend(df_h1)       if not df_h1.empty else "NEUTRAL"
-        h4_bias   = ind.h4_bias(df_h4)            if not df_h4.empty else scan.get_last_h4_bias(db_path)
+        h4_bias   = "DISABLED"
         session   = scan.current_session(now_utc)
 
         detected_zones = zdet.detect_all_zones(df_h1) if not df_h1.empty else []
@@ -979,60 +1007,134 @@ signal.signal(signal.SIGTERM, _handle_signal)
 _cfg: dict = {}
 
 
-# ── Claude Exit Review ───────────────────────────────────────────────────────
+# ── Manage Positions (1-min interval) ────────────────────────────────────────
+
+def _run_manage_positions(cfg: dict) -> None:
+    """Run automated exit management (BE, trail, scratch, stale tighten)."""
+    symbol = cfg["mt5"]["symbol"]
+    df_h1 = mt5c.get_candles(symbol, mt5.TIMEFRAME_H1, 55)
+    regime_result = _regime_det.detect(df_h1) if _regime_det and not df_h1.empty else rdet.RegimeDetector._default_result()
+    regime_cat = regime_result["regime"].category
+    exit_params = _adaptive.get_exit_params(regime_cat) if _adaptive else None
+    exe.manage_positions(symbol, cfg.get("mt5", {}), exit_params=exit_params, tracked=_tracked_positions)
+
+
+# ── Claude Exit Review (15-min interval) ────────────────────────────────────
 
 def _run_exit_review(cfg: dict) -> None:
-    """Run Claude exit review for all open bot positions."""
+    """Run Claude exit review with full market context for all open bot positions."""
     symbol  = cfg["mt5"]["symbol"]
     db_path = cfg["paths"]["zone_cache_db"]
+    proximity = cfg.get("trading", {}).get("zone_proximity_pts", 7.0)
 
     positions = mt5c.get_positions(symbol)
-    # Only review our positions
-    our_pos = [p for p in positions if p.get("_raw") and p["_raw"].magic == 202602]
-    if not our_pos:
-        return
+    magic = cfg.get("mt5", {}).get("magic", 202602)
+    our_pos = [p for p in positions if p.get("_raw") and p["_raw"].magic == magic]
+    has_positions = len(our_pos) > 0
 
-    logger.info(f"── Exit Review ({len(our_pos)} position(s)) ──")
+    if not has_positions:
+        # No positions — skip Claude review but heartbeat still fires below
+        logger.debug("── Exit Review — no open positions ──")
+    else:
+        logger.info(f"── Exit Review ({len(our_pos)} position(s)) ──")
 
-    # Gather current market data
-    df_h1 = mt5c.get_candles(symbol, mt5.TIMEFRAME_H1, 55)
     now_utc = datetime.now(timezone.utc)
 
-    atr_val   = ind.atr(df_h1, 14) if not df_h1.empty else 15
-    rsi_val   = ind.rsi(df_h1, 14) if not df_h1.empty else 50
-    pd_zone   = ind.premium_discount(df_h1) if not df_h1.empty else "EQUILIBRIUM"
-    ema_trend = ind.h1_ema_trend(df_h1) if not df_h1.empty else "NEUTRAL"
-    session   = scan.current_session(now_utc)
+    # ── Claude exit review only when positions are open ──────────────────────
+    if has_positions:
+        df_h1  = mt5c.get_candles(symbol, mt5.TIMEFRAME_H1, 55)
+        df_m15 = mt5c.get_candles(symbol, mt5.TIMEFRAME_M15, 20)
+        price_info = mt5c.get_price(symbol)
 
-    # Get nearby signal summary
-    detected_zones = zdet.detect_all_zones(df_h1) if not df_h1.empty else []
-    cached_zones = scan.get_active_zones(db_path)
-    all_zones = zdet.merge_zones(detected_zones, cached_zones)
-    zone_types = [z["type"] for z in all_zones[:8]]
-    nearby_str = ", ".join(zone_types) if zone_types else "none"
+        price     = price_info["mid"] if price_info else 0
+        spread    = price_info.get("spread", 0) if price_info else 0
+        atr_val   = ind.atr(df_h1, 14) if not df_h1.empty else 15
+        rsi_val   = ind.rsi(df_h1, 14) if not df_h1.empty else 50
+        pd_zone   = ind.premium_discount(df_h1) if not df_h1.empty else "EQUILIBRIUM"
+        ema_trend = ind.h1_ema_trend(df_h1) if not df_h1.empty else "NEUTRAL"
+        session   = scan.current_session(now_utc)
 
-    # Detect regime for exit review context
-    _exit_regime_label = "UNKNOWN"
-    if _regime_det and not df_h1.empty:
-        _exit_regime_result = _regime_det.detect(df_h1)
-        _exit_regime_label = _exit_regime_result["short_label"]
+        # Zone detection + proximity
+        detected_zones = zdet.detect_all_zones(df_h1) if not df_h1.empty else []
+        cached_zones = scan.get_active_zones(db_path)
+        all_zones = zdet.merge_zones(detected_zones, cached_zones)
+        nearby = scan.find_nearby_zones(price, all_zones, proximity * 2) if all_zones else []
+        nearby_str = ", ".join(z["type"] for z in nearby[:6]) if nearby else "none"
 
-    market_data = {
-        "atr":             atr_val,
-        "rsi":             rsi_val,
-        "pd_zone":         pd_zone,
-        "ema_trend":       ema_trend,
-        "session":         session["name"],
-        "nearby_signals":  nearby_str,
-        "regime":          _exit_regime_label,
-    }
+        # Regime
+        _exit_regime_label = "UNKNOWN"
+        if _regime_det and not df_h1.empty:
+            _exit_regime_result = _regime_det.detect(df_h1)
+            _exit_regime_label = _exit_regime_result["short_label"]
 
-    exe.review_positions_with_claude(
-        symbol=symbol,
-        cfg=cfg.get("mt5", {}),
-        claude_cfg=cfg["claude"],
-        market_data=market_data,
-    )
+        # M15 candle structure (last 3 candles summary)
+        m15_summary = ""
+        if not df_m15.empty and len(df_m15) >= 3:
+            last3 = df_m15.tail(3)
+            parts = []
+            for _, row in last3.iterrows():
+                body = row["close"] - row["open"]
+                tag = "BULL" if body > 0 else "BEAR"
+                parts.append(f"{tag}({abs(body):.1f})")
+            m15_summary = " → ".join(parts)
+
+        # H1 candle structure (last candle)
+        h1_summary = ""
+        if not df_h1.empty:
+            last_h1 = df_h1.iloc[-1]
+            h1_body = last_h1["close"] - last_h1["open"]
+            h1_range = last_h1["high"] - last_h1["low"]
+            h1_tag = "BULL" if h1_body > 0 else "BEAR"
+            h1_summary = f"{h1_tag} body={abs(h1_body):.1f} range={h1_range:.1f}"
+
+        # Daily range consumed
+        daily_consumed = ind.daily_range_consumed(df_h1, 1.20) if not df_h1.empty else False
+
+        # RSI momentum direction + EMA distance
+        rsi_dir = ind.rsi_direction(df_h1) if not df_h1.empty else "FLAT"
+        ema_dist = ind.ema_distance(df_h1) if not df_h1.empty else 0.0
+
+        # Opposing zones for each open position direction
+        opposing_str = ""
+        for p in our_pos:
+            opp_dir = "SHORT" if p["type"] == "LONG" else "LONG"
+            opp_zones = [z for z in nearby if scan.direction_for_zone(z) == opp_dir]
+            if opp_zones:
+                opp_types = [z["type"] for z in opp_zones[:3]]
+                opposing_str = ", ".join(opp_types)
+
+        market_data = {
+            "atr":             atr_val,
+            "rsi":             rsi_val,
+            "rsi_direction":   rsi_dir,
+            "pd_zone":         pd_zone,
+            "ema_trend":       ema_trend,
+            "ema_distance":    ema_dist,
+            "session":         session["name"],
+            "nearby_signals":  nearby_str,
+            "opposing_zones":  opposing_str or "none",
+            "regime":          _exit_regime_label,
+            "spread":          spread,
+            "m15_structure":   m15_summary,
+            "h1_structure":    h1_summary,
+            "daily_exhausted": daily_consumed,
+        }
+
+        exe.review_positions_with_claude(
+            symbol=symbol,
+            cfg=cfg.get("mt5", {}),
+            claude_cfg=cfg["claude"],
+            market_data=market_data,
+            tracked=_tracked_positions,
+        )
+
+    # ── Telegram heartbeat ALWAYS fires (every 15 min) ───────────────────────
+    global _last_scan_report
+    _last_scan_report = now_utc
+    try:
+        _send_heartbeat_report(cfg)
+    except Exception as e:
+        logger.warning(f"Heartbeat error: {e}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -1074,7 +1176,7 @@ def main():
         sys.exit(1)
 
     # ── Warmup: restore cooldown state from deal history ──────────────────────
-    _warmup_cooldown_from_history(magic=account_cfg.get("magic", 202602))
+    _warmup_cooldown_from_history(magic=mt5_cfg.get("magic", 202602))
 
     # ── Initialize adaptive system modules ──────────────────────────────────
     global _regime_det, _tracker, _adaptive
@@ -1124,10 +1226,10 @@ def main():
     llm_cmp.configure(llm_cmp_cfg)
 
     interval = _cfg.get("scanner", {}).get("interval_sec", 30)
-    tg_interval_min = tg_cfg.get("scan_report_interval_min", 30)
     cycle = 0
 
-    exit_review_interval = 20  # every 20 cycles = ~10 min
+    manage_interval = 2         # every 2 cycles × 30s = 1 min
+    exit_review_interval = 30   # every 30 cycles × 30s = 15 min
 
     _reconnect_failures = 0
     try:
@@ -1150,32 +1252,29 @@ def main():
                     time.sleep(backoff)
                     continue
 
+            # ── Manage positions — automated BE/trail/scratch/stale (1-min)
+            if cycle % manage_interval == 0:
+                try:
+                    _run_manage_positions(_cfg)
+                except Exception as e:
+                    logger.exception(f"Manage positions error: {e}")
+
             try:
                 run_scan_cycle(_cfg)
             except Exception as e:
                 logger.exception(f"Cycle {cycle} error: {e}")
 
-            # ── Claude smart exit review (profit-focused) ─────────────────
+            # ── Claude exit review + Telegram heartbeat (15-min) ──────────
             if cycle % exit_review_interval == 0:
                 try:
                     _run_exit_review(_cfg)
                 except Exception as e:
                     logger.exception(f"Exit review error: {e}")
 
-            # ── Telegram heartbeat scan report ────────────────────────────
-            global _last_scan_report
-            now_loop = datetime.now(timezone.utc)
-            if (_last_scan_report is None or
-                    (now_loop - _last_scan_report).total_seconds() >= tg_interval_min * 60):
-                _last_scan_report = now_loop
-                try:
-                    _send_heartbeat_report(_cfg)
-                except Exception as e:
-                    logger.warning(f"Heartbeat error: {e}")
-
-            # Clear attempted zones set each hour to allow re-evaluation
+            # Hourly cleanup: re-allow zone evaluation + prune stale ticket sets
             if cycle % (3600 // interval) == 0:
                 _attempted_zones.clear()
+                exe.prune_closed_tickets(set(_tracked_positions.keys()))
 
             time.sleep(interval)
     finally:

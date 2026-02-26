@@ -249,14 +249,21 @@ def colorize_line(line: str) -> str:
         line,
     )
 
-    # H4=BIAS
+    # H4=BIAS (including DISABLED state)
     line = re.sub(
-        r'(H4=)(BULLISH|BEARISH|RANGING)',
+        r'(H4=)(BULLISH|BEARISH|RANGING|DISABLED)',
         lambda m: (
             f'{DIM}H4='
-            f'{BGREEN if m.group(2) == "BULLISH" else BRED if m.group(2) == "BEARISH" else BYELLOW}'
+            f'{BGREEN if m.group(2) == "BULLISH" else BRED if m.group(2) == "BEARISH" else DIM}'
             f'{m.group(2)}{RST}'
         ),
+        line,
+    )
+
+    # Regime=LABEL
+    line = re.sub(
+        r'(Regime=)(\S+)',
+        lambda m: f'{MAGENTA}Regime={BMAGENTA + BOLD}{m.group(2)}{RST}',
         line,
     )
 
@@ -333,6 +340,11 @@ def colorize_line(line: str) -> str:
     line = re.sub(
         r'\b(NEW_YORK|LONDON_NY)\b',
         lambda m: _c(BBLUE + BOLD, m.group(1)),
+        line,
+    )
+    line = re.sub(
+        r'\b(LATE_NY)\b',
+        lambda m: _c(BLUE, m.group(1)),
         line,
     )
     line = re.sub(
@@ -431,12 +443,12 @@ def colorize_line(line: str) -> str:
 
     # ── Zone types ───────────────────────────────────────────────────────
     line = re.sub(
-        r'\b(BEAR_(?:FVG|OB|BREAKER)|BOS_BEAR|CHOCH_BEAR)\b',
+        r'\b(BEAR_(?:FVG|OB|BREAKER|LIQSWEEP)|BOS_BEAR|CHOCH_BEAR)\b',
         lambda m: _c(BRED, m.group(1)),
         line,
     )
     line = re.sub(
-        r'\b(BULL_(?:FVG|OB|BREAKER)|BOS_BULL|CHOCH_BULL)\b',
+        r'\b(BULL_(?:FVG|OB|BREAKER|LIQSWEEP)|BOS_BULL|CHOCH_BULL)\b',
         lambda m: _c(BGREEN, m.group(1)),
         line,
     )
@@ -477,10 +489,20 @@ def colorize_line(line: str) -> str:
         line = re.sub(r'(Skip)', _c(BYELLOW + BOLD, 'Skip'), line)
     if "counter-trend" in line:
         line = re.sub(r'(counter-trend)', _c(BRED, 'counter-trend'), line)
+    if "CHoCH override" in line:
+        line = re.sub(r'(CHoCH override)', _c(BCYAN + BOLD, 'CHoCH override'), line)
     if "cooldown" in line.lower():
         line = re.sub(r'(?i)(cooldown)', _c(BYELLOW, 'cooldown'), line)
     if "Spike window" in line:
         line = re.sub(r'(Spike window)', _c(BYELLOW, 'Spike window'), line)
+    if "Pre-score" in line:
+        line = re.sub(r'(Pre-score [\d.]+)', lambda m: _c(CYAN, m.group(1)), line)
+    if "Daily range exhausted" in line:
+        line = re.sub(r'(Daily range exhausted)', _c(BYELLOW + BOLD, 'Daily range exhausted'), line)
+    if "PREMIUM zone" in line:
+        line = re.sub(r'(PREMIUM zone)', _c(BRED, 'PREMIUM zone'), line)
+    if "DISCOUNT zone" in line:
+        line = re.sub(r'(DISCOUNT zone)', _c(BGREEN, 'DISCOUNT zone'), line)
 
     # ── Position stages ──────────────────────────────────────────────────
     line = re.sub(r'UNDERWATER', _c(BRED + BOLD, 'UNDERWATER'), line)

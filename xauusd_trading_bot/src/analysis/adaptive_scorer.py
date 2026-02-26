@@ -65,6 +65,20 @@ MAX_SCORE_ON_WEAK_SMC = 0.45
 # Opposing CHoCH penalty: when the other direction has a CHoCH (reversal signal)
 OPPOSING_CHOCH_PENALTY = 0.15
 
+# ── Phase 2: BOS Quality Filter (V5) ──────────────────────────────────────────
+# BOS without any confirmation (no CHoCH/FVG/OB/LiqSweep) → higher false-breakout risk.
+# These are read from confluence_weights config so Optuna can tune them.
+#
+# bos_solo_penalty      : extra score deduction for naked BOS  (tunable 0.0–0.20)
+# bos_ranging_fill_floor: stricter fill floor for BOS in ranging/volatile regimes
+#                         (tunable 0.30–0.55; floor of MIN_SMC_FILL applies)
+# Regimes where BOS is noisiest (structure breaks = market noise, not intent):
+BOS_SOLO_REGIMES = frozenset([
+    MarketRegime.RANGE_TIGHT,
+    MarketRegime.RANGE_WIDE,
+    MarketRegime.VOLATILE_BREAKOUT,
+])
+
 # Default signal quality multipliers (overridden by decomposition results)
 DEFAULT_SIGNAL_QUALITY = {
     "fvg": 1.0,
@@ -113,6 +127,10 @@ class AdaptiveConfluenceScorer:
 
         # LTF analyzer (lazy init)
         self._ltf_analyzer = None
+
+        # Phase 2: BOS quality filter params (read from confluence_weights config)
+        self._bos_solo_penalty       = self.base_weights.get("bos_solo_penalty", 0.0)
+        self._bos_ranging_fill_floor = self.base_weights.get("bos_ranging_fill_floor", MIN_SMC_FILL)
 
     def _load_signal_quality(self) -> Dict:
         """Load signal quality multipliers from decomposition results or defaults."""
@@ -200,22 +218,47 @@ class AdaptiveConfluenceScorer:
             breakdown["adjustments"] = adjustments
 
             raw_score = smc_score + tech_score + bonus_score + adjustments["total"]
+
+            # ── Phase 2: BOS Quality Filter ─────────────────────────────────
+            # Detect "BOS solo": BOS present but NO other SMC confirmation.
+            # CHoCH/FVG/OB/LiqSweep all add conviction; naked BOS = noise-prone.
+            is_bos_solo = (
+                smc_signals.get("structure", {}).get("bos", False)
+                and not smc_signals.get("structure", {}).get("choch", False)
+                and not smc_signals.get("fvg", {}).get("in_zone", False)
+                and not smc_signals.get("order_block", {}).get("at_zone", False)
+                and not smc_signals.get("liquidity", {}).get("swept", False)
+            )
+
+            # 1. BOS solo penalty: subtract from raw score
+            bos_penalized = False
+            if is_bos_solo and self._bos_solo_penalty > 0:
+                raw_score -= self._bos_solo_penalty
+                bos_penalized = True
+
             final_score = max(0.0, min(1.0, raw_score))
 
-            # Fix 1: Raw SMC floor — weak SMC signal can't be rescued by tech/MTF alone
+            # 2. Regime-adaptive fill floor: BOS in ranging/volatile needs more confirmation
+            effective_min_fill = MIN_SMC_FILL
+            if is_bos_solo and regime in BOS_SOLO_REGIMES:
+                effective_min_fill = max(MIN_SMC_FILL, self._bos_ranging_fill_floor)
+
+            # Fix 1 (enhanced): Raw SMC floor — weak SMC can't be rescued by tech/MTF alone
             smc_capped = False
-            if smc_fill < MIN_SMC_FILL:
+            if smc_fill < effective_min_fill:
                 if final_score > MAX_SCORE_ON_WEAK_SMC:
                     smc_capped = True
                     final_score = MAX_SCORE_ON_WEAK_SMC
+            # ─────────────────────────────────────────────────────────────────
 
             min_conf = params["min_confluence"]
 
-            self.logger.info(
+            self.logger.debug(
                 f"Score [{direction.value}]: smc_fill={smc_fill:.0%}*{params['smc_weight']:.2f}={smc_score:.3f} | "
                 f"tech={tech_score:.3f} | bonus={bonus_score:.3f} | adj={adjustments['total']:.3f} | "
                 f"final={final_score:.3f} (min={min_conf:.3f})"
                 f"{' [SMC_CAPPED]' if smc_capped else ''}"
+                f"{f' [BOS_SOLO pen={self._bos_solo_penalty:.2f} floor={effective_min_fill:.0%}]' if is_bos_solo else ''}"
             )
 
             return {

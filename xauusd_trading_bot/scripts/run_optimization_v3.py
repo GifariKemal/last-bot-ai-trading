@@ -74,6 +74,10 @@ def main():
         logger.info("\n--- STEP 1: Pre-calculating indicators ---")
         optimizer.prepare_data(start_date, end_date, use_cache=True)
 
+        # Step 1b: Diagnose windows — verify trade counts before burning Optuna trials
+        logger.info("\n--- STEP 1b: Window diagnostic ---")
+        optimizer.diagnose_windows()
+
         # Step 2: Run optimization
         logger.info("\n--- STEP 2: Running walk-forward optimization ---")
         results = optimizer.optimize(study_name=args.study_name)

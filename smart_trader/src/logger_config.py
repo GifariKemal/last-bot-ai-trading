@@ -50,8 +50,8 @@ def _patch_dual_time(record: dict) -> None:
 # ── Filter helpers ────────────────────────────────────────────────────────────
 
 def _is_activity(r: dict) -> bool:
-    """Bot-activity sink: all records except MARKET and JOURNAL kinds."""
-    return r["extra"].get("kind", "") not in ("MARKET", "JOURNAL")
+    """Bot-activity sink: all records except MARKET, JOURNAL, and TRADE kinds."""
+    return r["extra"].get("kind", "") not in ("MARKET", "JOURNAL", "TRADE")
 
 
 def _is_market(r: dict) -> bool:
@@ -85,7 +85,7 @@ def setup_logging(cfg: dict) -> None:
     # Inject dual-time extras into every record
     logger.configure(patcher=_patch_dual_time)
 
-    # ── 1. Console — colorized, activity + trade events only ─────────────────
+    # ── 1. Console — colorized, activity only (TRADE/MARKET/JOURNAL → dedicated sinks)
     logger.add(
         cfmt.console_sink,
         level="INFO",

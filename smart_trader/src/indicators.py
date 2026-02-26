@@ -88,7 +88,7 @@ def m15_confirmation(df_m15: pd.DataFrame, direction: str) -> Optional[str]:
     Detects bullish/bearish CHoCH or engulfing on M15.
     Returns signal name or None.
     """
-    if len(df_m15) < 6:
+    if len(df_m15) < 10:
         return None
 
     last = df_m15.iloc[-1]
@@ -103,8 +103,8 @@ def m15_confirmation(df_m15: pd.DataFrame, direction: str) -> Optional[str]:
                 and last["close"] >= prev["open"]
                 and body_last > body_prev * 0.8):
             return "BULL_ENGULFING"
-        # Bullish CHoCH: close above recent swing high
-        swing_high = df_m15["high"].iloc[-6:-1].max()
+        # Bullish CHoCH: close above recent 8-bar swing high (2h M15 window)
+        swing_high = df_m15["high"].iloc[-9:-1].max()
         if last["close"] > swing_high:
             return "BULL_CHOCH"
     else:
@@ -114,12 +114,40 @@ def m15_confirmation(df_m15: pd.DataFrame, direction: str) -> Optional[str]:
                 and last["close"] <= prev["open"]
                 and body_last > body_prev * 0.8):
             return "BEAR_ENGULFING"
-        # Bearish CHoCH: close below recent swing low
-        swing_low = df_m15["low"].iloc[-6:-1].min()
+        # Bearish CHoCH: close below recent 8-bar swing low (2h M15 window)
+        swing_low = df_m15["low"].iloc[-9:-1].min()
         if last["close"] < swing_low:
             return "BEAR_CHOCH"
 
     return None
+
+
+def rsi_direction(df: pd.DataFrame, period: int = 14) -> str:
+    """RSI momentum direction: RISING, FALLING, or FLAT (compare last vs 3 bars ago)."""
+    if len(df) < period + 4:
+        return "FLAT"
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0).rolling(period).mean()
+    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    rs = gain / loss.replace(0, np.nan)
+    rsi_series = 100 - 100 / (1 + rs)
+    rsi_now = float(rsi_series.iloc[-1])
+    rsi_3ago = float(rsi_series.iloc[-4])
+    diff = rsi_now - rsi_3ago
+    if diff > 3:
+        return "RISING"
+    if diff < -3:
+        return "FALLING"
+    return "FLAT"
+
+
+def ema_distance(df: pd.DataFrame, period: int = 50) -> float:
+    """Distance from current price to EMA(50) in points. Positive = above EMA."""
+    if len(df) < period:
+        return 0.0
+    ema_val = float(df["close"].ewm(span=period, adjust=False).mean().iloc[-1])
+    price = float(df["close"].iloc[-1])
+    return round(price - ema_val, 2)
 
 
 def ema(df: pd.DataFrame, period: int = 50) -> float:
@@ -217,7 +245,7 @@ def count_signals(
     ote: Optional[tuple],
     price: float,
     pd_zone: str,
-    h1_structure: str,
+    h1_structure: str = "",
 ) -> tuple[int, list[str]]:
     """
     Count SMC confluence signals.
@@ -225,8 +253,9 @@ def count_signals(
     """
     signals = []
 
-    # Check ALL zone types for structure + zone signals
-    all_types = zones_hit + [h1_structure]
+    # Check zone types for structure + zone signals
+    # h1_structure is kept for backward compat but typically already in zones_hit
+    all_types = zones_hit if not h1_structure else zones_hit + [h1_structure]
     for z in all_types:
         zu = z.upper()
         if "BOS" in zu and "BOS" not in signals:
@@ -239,7 +268,7 @@ def count_signals(
             signals.append("FVG")
         if "BREAKER" in zu and "Breaker" not in signals:
             signals.append("Breaker")
-        if "LIQ" in zu and "LiqSweep" not in signals:
+        if "LIQSWEEP" in zu and "LiqSweep" not in signals:
             signals.append("LiqSweep")
 
     # M15 confirmation bonus

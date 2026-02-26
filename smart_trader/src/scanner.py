@@ -8,8 +8,8 @@ from typing import Optional
 from loguru import logger
 
 
-_BULL_TYPES = {"BULL_OB", "BULL_FVG", "BULL_BREAKER", "BOS_BULL", "CHOCH_BULL"}
-_BEAR_TYPES = {"BEAR_OB", "BEAR_FVG", "BEAR_BREAKER", "BOS_BEAR", "CHOCH_BEAR"}
+_BULL_TYPES = {"BULL_OB", "BULL_FVG", "BULL_BREAKER", "BOS_BULL", "CHOCH_BULL", "BULL_LIQSWEEP"}
+_BEAR_TYPES = {"BEAR_OB", "BEAR_FVG", "BEAR_BREAKER", "BOS_BEAR", "CHOCH_BEAR", "BEAR_LIQSWEEP"}
 _SPIKE_WINDOWS = [
     (7, 45, 8,  0),   # London spike
     (12, 45, 13, 0),   # NY spike
@@ -20,7 +20,7 @@ _SESSIONS = [
     (7,  0, 12, 0,  "LONDON",    "HIGH"),
     (16, 0, 20, 0,  "NEW_YORK",  "HIGH"),
     (20, 0, 22, 0,  "LATE_NY",   "MEDIUM"),
-    (22, 0, 23, 0,  "OFF_HOURS", "MEDIUM"),   # Exness maintenance
+    (22, 0, 23, 0,  "OFF_HOURS", "MEDIUM"),   # IC Markets daily reset / wide spread window
     (23, 0, 24, 0,  "ASIAN",     "LOW"),
     (0,  0, 7,  0,  "ASIAN",     "LOW"),
 ]

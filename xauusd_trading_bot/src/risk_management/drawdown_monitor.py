@@ -39,6 +39,13 @@ class DrawdownMonitor:
         self.max_consecutive_losses = self.protection_config.get(
             "max_consecutive_losses", 3
         )
+        # Minimum profit to count as a "real" win that resets the loss streak.
+        # A scratch/near-BE win (e.g. +$2.93) should not reset consecutive_losses
+        # because direction momentum is still clearly failing.
+        # Default $5.00 ≈ ~0.25R on a typical $20 SL trade.
+        self.min_win_to_reset_streak = self.protection_config.get(
+            "min_win_to_reset_streak_usd", 5.0
+        )
 
         # Pause settings
         self.pause_on_limit = self.protection_config.get("pause_on_limit", True)
@@ -250,9 +257,23 @@ class DrawdownMonitor:
         profit = trade.get("profit", 0)
         is_win = profit > 0
 
-        # Update consecutive losses
-        if is_win:
+        # Update consecutive losses.
+        # Bug fix: only reset streak on a *meaningful* win (>= min_win_to_reset_streak).
+        # A scratch/near-BE win (e.g. +$2.93) does NOT reset the counter — direction
+        # momentum is still failing and the streak protection should stay active.
+        is_meaningful_win = profit >= self.min_win_to_reset_streak
+        if is_meaningful_win:
+            if self.consecutive_losses > 0:
+                self.logger.info(
+                    f"Meaningful win (${profit:.2f} >= ${self.min_win_to_reset_streak:.2f}) — "
+                    f"consecutive loss streak reset from {self.consecutive_losses} to 0"
+                )
             self.consecutive_losses = 0
+        elif is_win:
+            self.logger.info(
+                f"Scratch win (${profit:.2f} < ${self.min_win_to_reset_streak:.2f}) — "
+                f"consecutive losses NOT reset (still {self.consecutive_losses})"
+            )
         else:
             self.consecutive_losses += 1
 

@@ -40,7 +40,7 @@ telegram:
   enabled: true
   token: "8215295219:AAGwcevN5QKqYIgVnOogB9P1Lo-x6HCoatM"
   chat_id: "-1003549733840"
-  scan_report_interval_min: 60   # hourly analysis report via Telegram
+  scan_report_interval_min: 15   # every 15 min — tied to Claude exit review cycle
 
 llm_comparison:
   enabled: true

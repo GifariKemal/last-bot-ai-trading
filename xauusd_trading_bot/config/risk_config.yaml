@@ -52,6 +52,7 @@ account_protection:
   max_monthly_loss_percent: 20.0
   max_consecutive_losses: 3  # Pause after this many consecutive losses
   pause_duration_minutes: 60  # Pause duration after max consecutive losses
+  min_win_to_reset_streak_usd: 5.0  # Scratch wins below this do NOT reset consecutive loss counter
 
   max_drawdown_percent: 30.0  # XAUUSD $100 account: single trade risk ~21%, 15% was too tight
   # daily_profit_target: 3.0  # Disabled — let the bot trade throughout the day

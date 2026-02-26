@@ -27,6 +27,7 @@ from ..risk_management.structure_sl_tp import StructureSLTPCalculator
 from ..sessions import SessionManager
 from ..core.constants import TrendDirection, MarketRegime
 from ..core.data_manager import DataManager
+from ..strategy.exit_signals import STRUCTURE_EXIT_MIN_RR
 
 
 # Realistic spread model by session (UTC hours)
@@ -94,13 +95,16 @@ class BacktestEngine:
         self.strategy = SMCStrategy(config)
 
         # Risk management
-        risk_cfg = config.get("risk", {})
+        # NOTE: risk_config.yaml has NO "risk:" wrapper — keys are top-level.
+        # Pass `config` directly so each manager finds its key (stop_loss, position_sizing,
+        # micro_account, etc.) at the top level, matching how the live bot reads risk_config.yaml.
+        risk_cfg = config  # Full config — top-level keys match risk_config.yaml structure
         self.sltp_calculator = SLTPCalculator(risk_cfg)
         self.structure_sltp = StructureSLTPCalculator(risk_cfg)
         self.use_structure_sltp = risk_cfg.get("structure_sl_tp", {}).get("enabled", True)
         self.position_sizer = PositionSizer(risk_cfg)
 
-        # V3: Micro account manager
+        # V3: Micro account manager (reads micro_account key from config)
         self.micro_manager = MicroAccountManager(risk_cfg)
 
         # Position direction limits (mirrors live bot logic)
@@ -122,8 +126,31 @@ class BacktestEngine:
         # V3: Regime tracking for metrics
         self._regime_per_trade = []
 
-        # Structure exit config (None = disabled, backward compatible)
+        # Structure exit config (None = uses STRUCTURE_EXIT_MIN_RR defaults, backward compatible)
         self._structure_exit_config = config.get("structure_exit", None)
+
+        # --- PHASE 1 SYNC: Live bot parity ---
+        # Exit stage thresholds: read directly from top-level (no "risk:" wrapper)
+        _exit_cfg = config.get("exit_stages", {})
+        self._be_trigger_rr    = _exit_cfg.get("be_trigger_rr",    0.77)
+        self._partial_close_rr = _exit_cfg.get("partial_close_rr", 2.73)
+        self._trail_activation = _exit_cfg.get("trail_activation_rr", 2.72)
+
+        # Stale trade exit: read directly from top-level
+        _stale_cfg = config.get("stale_trade", {})
+        self._stale_enabled  = _stale_cfg.get("enabled", False)
+        self._stale_min_hours = _stale_cfg.get("min_hours", 3)
+        self._stale_min_peak = _stale_cfg.get("min_peak_rr", 0.3)
+
+        # Account protection: consecutive loss pause
+        _ap_cfg = config.get("account_protection", {})
+        self._max_consecutive_losses  = _ap_cfg.get("max_consecutive_losses", 3)
+        self._pause_bars_on_loss      = 4   # 60 min / 15 min per bar = 4 bars
+        self._min_win_to_reset_streak = _ap_cfg.get("min_win_to_reset_streak_usd", 5.0)
+        self._pause_until_bar         = 0   # bar index until which new entries are paused
+
+        # Time-based exit (matches trading_rules.yaml time_exit_hours=48)
+        self._time_exit_hours = config.get("strategy", {}).get("exit", {}).get("time_exit_hours", 48)
 
     def run_backtest(
         self,
@@ -154,6 +181,9 @@ class BacktestEngine:
         self.open_positions = []
         self.consecutive_losses = 0
         self._regime_per_trade = []
+        self._pause_until_bar = 0
+        # Reset RSI bounce history (Phase 1 sync)
+        self.strategy.entry_generator._recent_rsi_values = []
 
         # Fetch and prepare data
         df = self._prepare_data(mt5, symbol, timeframe, start_date, end_date, use_cache)
@@ -217,6 +247,9 @@ class BacktestEngine:
         self.consecutive_losses = 0
         self._regime_per_trade = []
         self.df_m5 = df_m5
+        self._pause_until_bar = 0
+        # Reset RSI bounce history (Phase 1 sync)
+        self.strategy.entry_generator._recent_rsi_values = []
 
         # Initialize SMC internal state (swing points, structure cache)
         # Without this, get_bullish/bearish_signals returns empty results
@@ -299,14 +332,16 @@ class BacktestEngine:
         entry_count = 0
 
         for i in range(100, total_bars):
+            self._current_bar_index = i  # Phase 1 sync: track for pause logic
             current_bar = df[i]
             current_price = current_bar["close"][0]
             current_time = current_bar["time"][0]
 
-            # Pre-compute SMC/regime for structure exit (only when needed)
+            # Pre-compute SMC/regime for structure exit — always when positions open
+            # (Phase 1 sync: structure exit runs on every bar, not just when config set)
             smc_for_exit = None
             regime_for_exit = None
-            if self.open_positions and self._structure_exit_config:
+            if self.open_positions:
                 df_slice_exit = df[:i+1]
                 regime_result_exit = self.regime_detector.detect(df_slice_exit)
                 regime_for_exit = regime_result_exit["regime"]
@@ -320,8 +355,8 @@ class BacktestEngine:
                 smc_analysis=smc_for_exit, regime=regime_for_exit,
             )
 
-            # Check basic trading conditions
-            if not self._should_trade(current_time):
+            # Check basic trading conditions + consecutive loss pause
+            if not self._should_trade(current_time) or i < self._pause_until_bar:
                 continue
 
             # Get data slice (reuse if already computed for exit)
@@ -371,17 +406,24 @@ class BacktestEngine:
             if self.df_m5 is not None:
                 ltf_data = {"m5_df": self.df_m5, "current_m15_time": current_time}
 
+            # Phase 1 sync: update RSI bounce history (persistent 5-bar window)
+            rsi_val = technical_indicators.get("rsi", 50.0)
+            self.strategy.entry_generator.update_rsi_history(rsi_val)
+
             # V3: Adaptive confluence scoring with regime
+            # Phase 1 sync: pass opposing_smc for OPPOSING_CHOCH_PENALTY (-0.15)
             bullish_smc = smc_analysis["bullish"]
             bearish_smc = smc_analysis["bearish"]
             if self.use_adaptive_scorer:
                 bullish_confluence = self.confluence_scorer.calculate_score(
                     TrendDirection.BULLISH, bullish_smc, technical_indicators,
                     market_analysis, mtf_analysis, regime=regime, ltf_data=ltf_data,
+                    opposing_smc=bearish_smc,
                 )
                 bearish_confluence = self.confluence_scorer.calculate_score(
                     TrendDirection.BEARISH, bearish_smc, technical_indicators,
                     market_analysis, mtf_analysis, regime=regime, ltf_data=ltf_data,
+                    opposing_smc=bullish_smc,
                 )
             else:
                 bullish_confluence = self.confluence_scorer.calculate_score(
@@ -402,10 +444,13 @@ class BacktestEngine:
             spread = _get_spread_for_time(current_time)
             mock_market_data = {"bid": current_price, "ask": current_price + spread, "spread": spread, "time": current_time}
 
+            # Phase 1 sync: pass regime so generate_signal uses correct min_smc_signals
+            # (Bug #41 equivalent — live bot passes regime via trading_bot.py, backtest must too)
             decision = self.strategy.analyze_and_signal(
                 current_price, smc_analysis, technical_indicators,
                 market_analysis, mtf_analysis, confluence_scores,
-                self.open_positions, mock_account, mock_market_data
+                self.open_positions, mock_account, mock_market_data,
+                regime=regime,
             )
 
             if decision.get("has_entry"):
@@ -557,10 +602,14 @@ class BacktestEngine:
         direction = signal["direction"]
         sl_distance = abs(entry_price - sl)
 
-        # V3: Configurable exit thresholds from sltp_info
-        be_trigger = sltp_info.get("be_trigger_rr", 1.0) if sltp_info else 1.0
-        partial_close = sltp_info.get("partial_close_rr", 1.5) if sltp_info else 1.5
-        trail_activation = sltp_info.get("trail_activation_rr", 2.0) if sltp_info else 2.0
+        # Phase 1 sync: read exit thresholds from risk_config (not sltp_info defaults)
+        # Live bot uses 0.77/dynamic/2.72 — NOT 1.0/1.5/2.0 old defaults
+        be_trigger     = sltp_info.get("be_trigger_rr",      self._be_trigger_rr)    if sltp_info else self._be_trigger_rr
+        trail_activation = sltp_info.get("trail_activation_rr", self._trail_activation) if sltp_info else self._trail_activation
+
+        # Dynamic partial close: max(tp_rr * 0.65, 1.0) — matches live bot logic
+        tp_rr = abs(tp - entry_price) / sl_distance if sl_distance > 0 else 2.0
+        partial_close = max(tp_rr * 0.65, 1.0)
 
         position = {
             "ticket": len(self.trades) + len(self.open_positions) + 1,
@@ -626,40 +675,79 @@ class BacktestEngine:
                     self._close_position(position, sl, "Stop Loss")
                     continue
 
-            # --- STRUCTURE EXIT (opposite CHoCH with min RR + min hold) ---
-            if self._structure_exit_config and smc_analysis:
-                min_hold_bars = self._structure_exit_config.get("min_hold_bars", 2)
-                bars_held = bar_index - position.get("entry_bar_index", bar_index)
+            # Phase 1 sync: extract current_time for time/stale checks
+            current_time = current_bar["time"][0]
 
-                if bars_held >= min_hold_bars:
-                    # Check opposite CHoCH
+            # --- STRUCTURE EXIT (Phase 1 sync: always on, uses STRUCTURE_EXIT_MIN_RR) ---
+            # min_hold = 4 bars (60 min / 15 min per bar) — matches live bot MIN_HOLD_MINUTES=60
+            MIN_HOLD_BARS = 4
+            if smc_analysis:
+                bars_held = bar_index - position.get("entry_bar_index", bar_index)
+                if bars_held >= MIN_HOLD_BARS:
                     has_opposite_choch = False
                     if direction == "BUY":
                         has_opposite_choch = (
-                            smc_analysis.get("bearish", {})
-                            .get("structure", {})
-                            .get("choch", False)
+                            smc_analysis.get("bearish", {}).get("structure", {}).get("choch", False)
                         )
                     else:
                         has_opposite_choch = (
-                            smc_analysis.get("bullish", {})
-                            .get("structure", {})
-                            .get("choch", False)
+                            smc_analysis.get("bullish", {}).get("structure", {}).get("choch", False)
                         )
 
                     if has_opposite_choch:
-                        # Calculate current RR
                         if direction == "BUY":
                             pnl_fraction = (current_price - entry_price) / sl_distance if sl_distance > 0 else 0
                         else:
                             pnl_fraction = (entry_price - current_price) / sl_distance if sl_distance > 0 else 0
 
-                        min_rr = self._get_structure_exit_min_rr(
-                            regime or position.get("regime", MarketRegime.RANGE_WIDE)
-                        )
+                        # Use STRUCTURE_EXIT_MIN_RR (Optuna-optimized) or config override
+                        current_regime = regime or position.get("regime", MarketRegime.RANGE_WIDE)
+                        if self._structure_exit_config:
+                            min_rr = self._get_structure_exit_min_rr(current_regime)
+                        else:
+                            min_rr = STRUCTURE_EXIT_MIN_RR.get(current_regime, 1.1)
+
                         if pnl_fraction >= min_rr:
                             self._close_position(position, current_price, "Structure Exit")
                             continue
+
+            # --- STALE TRADE EXIT (Phase 1 sync: dead-momentum close before full SL) ---
+            if self._stale_enabled and not position.get("stale_exit_attempted", False):
+                try:
+                    entry_time = position["entry_time"]
+                    if hasattr(current_time, "total_seconds"):
+                        age_hours = 0.0
+                    else:
+                        age_hours = (current_time - entry_time).total_seconds() / 3600
+
+                    peak_rr = (
+                        abs(position.get("peak_profit_price", entry_price) - entry_price) / sl_distance
+                        if sl_distance > 0 else 0
+                    )
+                    in_loss = (
+                        (direction == "BUY" and current_price < entry_price) or
+                        (direction == "SELL" and current_price > entry_price)
+                    )
+
+                    if age_hours >= self._stale_min_hours and peak_rr < self._stale_min_peak and in_loss:
+                        position["stale_exit_attempted"] = True
+                        self._close_position(
+                            position, current_price,
+                            f"Stale Exit (peak {peak_rr:.2f}R in {age_hours:.1f}h)"
+                        )
+                        continue
+                except Exception:
+                    pass  # Graceful fallback if time types don't match
+
+            # --- TIME-BASED EXIT (Phase 1 sync: 48h, matches trading_rules.yaml) ---
+            try:
+                entry_time = position["entry_time"]
+                age_hours_t = (current_time - entry_time).total_seconds() / 3600
+                if age_hours_t > self._time_exit_hours:
+                    self._close_position(position, current_price, "Time Exit (no progress)")
+                    continue
+            except Exception:
+                pass
 
             # --- CURRENT PROFIT ---
             if direction == "BUY":
@@ -759,11 +847,16 @@ class BacktestEngine:
         partial_taken = position.get("partial_profit_taken", 0.0)
         total_profit = partial_taken + remaining_profit
 
-        # Track consecutive losses
-        if total_profit < 0:
-            self.consecutive_losses += 1
-        else:
+        # Phase 1 sync: only reset streak on meaningful win (>= min_win_to_reset_streak)
+        # A scratch/near-BE win does NOT reset the counter — matches drawdown_monitor.py fix
+        if total_profit >= self._min_win_to_reset_streak:
             self.consecutive_losses = 0
+        elif total_profit < 0:
+            self.consecutive_losses += 1
+            # Trigger pause if consecutive losses hit limit
+            if self.consecutive_losses >= self._max_consecutive_losses:
+                current_bar_idx = self.trades.__len__()  # approximation
+                self._pause_until_bar = getattr(self, "_current_bar_index", 0) + self._pause_bars_on_loss
 
         trade = {
             "ticket": position["ticket"],

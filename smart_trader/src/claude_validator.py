@@ -276,25 +276,32 @@ THINK LIKE THE MASTERS:
 - Kotegawa: when exit signal is clear, ACT — no hesitation, no "hold a little longer"
 
 MARKET NOW:
-Price: {price} | ATR: {atr:.1f}pt | Session: {session} | EMA(50): {ema_trend}
-RSI(14): {rsi:.1f} | P/D: {pd_zone} | Regime: {regime}
-Nearby signals: {nearby_signals}
+Price: {price} | Spread: {spread}pt | ATR: {atr:.1f}pt
+Session: {session} | EMA(50): {ema_trend} (dist: {ema_distance:+.1f}pt)
+RSI(14): {rsi:.1f} ({rsi_direction}) | P/D: {pd_zone} | Regime: {regime}
+Nearby zones: {nearby_signals}
+Opposing zones: {opposing_zones}
+M15 candles: {m15_structure}
+H1 last candle: {h1_structure}
+Daily range exhausted: {daily_exhausted}
 
 OPEN POSITION:
-Direction: {direction} | Entry: {entry:.2f} | P/L: {pnl_pts:+.1f}pt (${pnl_usd:+.2f})
-SL: {sl:.2f} | TP: {tp:.2f} (remaining: {tp_remaining:.0f}pt) | Duration: {duration_min:.0f}min
-Stage: {stage}
+Direction: {direction} | Entry: {entry:.2f}
+P/L: {pnl_pts:+.1f}pt (${pnl_usd:+.2f}) | Peak: {peak_profit:+.1f}pt | RR: {rr_ratio:.2f}R
+SL: {sl:.2f} (dist: {sl_dist:.1f}pt) | TP: {tp:.2f} (remaining: {tp_remaining:.0f}pt)
+Duration: {duration_min:.0f}min | Stage: {stage}
 
 RULES (mandatory):
 - Default is HOLD. You need a STRONG reason to override.
-- TAKE_PROFIT only when profit is above 15pt AND momentum clearly reversing:
-  * LONG: RSI dropping from above 70, or price broke below EMA(50)
-  * SHORT: RSI rising from below 30, or price broke above EMA(50)
-- TIGHTEN when profit is above 15pt and momentum weakening but not reversing yet.
+- TAKE_PROFIT only when profit is above 3pt AND momentum clearly reversing:
+  * LONG: RSI dropping from above 70, bearish M15 structure, or price broke below EMA(50)
+  * SHORT: RSI rising from below 30, bullish M15 structure, or price broke above EMA(50)
+- TIGHTEN when profit is above 8pt and momentum weakening but not reversing yet.
   * Move SL to lock at least 50% of current profit.
 - If UNDERWATER (P/L negative): ALWAYS HOLD. Never close at a loss.
-- If profit is below 15pt: ALWAYS HOLD. Let the trade develop.
+- If profit is below 3pt: ALWAYS HOLD. Let the trade develop.
 - If EMA trend matches direction and RSI is not extreme: HOLD.
+- Use M15 candle structure and nearby zones to assess momentum direction.
 
 Respond ONLY with valid JSON (no markdown):
 {{"action":"HOLD","reason":"<15 words"}}
@@ -304,10 +311,18 @@ OR {{"action":"TIGHTEN","new_sl":{tighten_sl:.2f},"reason":"<15 words"}}
 
 
 def build_exit_prompt(pos_data: dict) -> str:
-    """Build compact exit review prompt."""
-    # Ensure regime field exists (optional for backward compat)
+    """Build compact exit review prompt with full market context."""
     data = dict(pos_data)
     data.setdefault("regime", "UNKNOWN")
+    data.setdefault("spread", 0)
+    data.setdefault("m15_structure", "N/A")
+    data.setdefault("h1_structure", "N/A")
+    data.setdefault("daily_exhausted", False)
+    data.setdefault("rsi_direction", "FLAT")
+    data.setdefault("ema_distance", 0)
+    data.setdefault("opposing_zones", "none")
+    data.setdefault("peak_profit", 0)
+    data.setdefault("rr_ratio", 0)
     return _EXIT_PROMPT_TEMPLATE.format(**data)
 
 

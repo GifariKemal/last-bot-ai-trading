@@ -100,6 +100,56 @@ class ParameterOptimizerV3:
 
         return windows
 
+    def diagnose_windows(self) -> None:
+        """
+        Dry-run each OOS window with BASE CONFIG to verify trade counts before optimization.
+        Call after prepare_data() and before optimize() to catch sparse-signal periods early.
+        """
+        if self._df_prepared is None:
+            raise ValueError("Call prepare_data() first")
+
+        self.logger.info("=" * 60)
+        self.logger.info("WINDOW DIAGNOSTIC — base config trade counts")
+        self.logger.info("=" * 60)
+
+        all_ok = True
+        for i, (train_start, train_end, test_start, test_end) in enumerate(self._windows):
+            df_test = self._df_prepared[test_start:test_end]
+            n_bars = len(df_test)
+
+            engine = BacktestEngine(self.base_config)
+            result = engine.run_backtest_fast(
+                df_test,
+                initial_balance=self.initial_balance,
+            )
+
+            if not result.get("success"):
+                self.logger.warning(f"  Window {i+1}: FAILED — no result")
+                all_ok = False
+                continue
+
+            m = result["metrics"]
+            n_trades = m["total_trades"]
+            pf = m.get("profit_factor", 0)
+            wr = m.get("win_rate", 0)
+            dd = m.get("max_drawdown_percent", 0)
+            status = "✓" if n_trades >= 5 else "✗ TOO FEW"
+            self.logger.info(
+                f"  Window {i+1} (bars {test_start}-{test_end}, {n_bars} bars): "
+                f"Trades={n_trades} {status}, PF={pf:.2f}, WR={wr:.1f}%, DD={dd:.1f}%"
+            )
+            if n_trades < 5:
+                all_ok = False
+
+        if all_ok:
+            self.logger.info("All windows OK — proceeding with optimization")
+        else:
+            self.logger.warning(
+                "Some windows have < 5 trades. Consider --months N to focus on recent data. "
+                "Current approach: trials with <5-trade windows will score -50."
+            )
+        self.logger.info("=" * 60)
+
     def optimize(self, study_name: Optional[str] = None) -> Dict:
         """
         Run walk-forward optimization.
@@ -215,11 +265,24 @@ class ParameterOptimizerV3:
             metrics = result["metrics"]
             score = self._calculate_score(metrics, params)
 
+            n_trades = metrics["total_trades"]
+            dd = metrics.get("max_drawdown_percent", 0)
+
             # Rejection checks
-            if metrics["total_trades"] < 15:
+            # min_trades=5: pragmatic floor — windows with 1-4 trades are statistically noise.
+            if n_trades < 5:
                 score = -50  # Too few trades
-            if metrics.get("max_drawdown_percent", 0) > 25:
-                score = -100  # Excessive drawdown
+            # DD threshold: use 30% — meaningful when balance=10000 (each 0.01 lot SL≈$45 → 0.45% per loss).
+            # NOT used with balance=$100 (45% per loss makes this impossible to pass).
+            if dd > 30:
+                score = -100  # Excessive drawdown (>30% with $10k balance = catastrophic)
+
+            # Per-window debug: log trade count + PF for visibility
+            pf_val = metrics.get("profit_factor", 0)
+            self.logger.debug(
+                f"  Window {window_idx+1}: trades={n_trades}, PF={pf_val:.2f}, "
+                f"DD={dd:.1f}%, score={score:.2f}"
+            )
 
             oos_scores.append(score)
 
@@ -320,6 +383,12 @@ class ParameterOptimizerV3:
         # --- TP Multiplier (1) ---
         params["tp_atr_mult"] = trial.suggest_float("tp_atr_mult", 3.0, 8.0)
 
+        # ── Phase 2: BOS Quality Filter (V5) ─────────────────────────────────
+        # bos_solo_penalty     : extra score deduction for naked BOS (no CHoCH/FVG/OB/LiqSweep)
+        # bos_ranging_fill_floor: stricter SMC fill floor for BOS in ranging/volatile regimes
+        params["bos_solo_penalty"]       = trial.suggest_float("bos_solo_penalty", 0.0, 0.20)
+        params["bos_ranging_fill_floor"] = trial.suggest_float("bos_ranging_fill_floor", 0.30, 0.55)
+
         return params
 
     def _params_to_config(self, params: Dict) -> Dict:
@@ -343,18 +412,22 @@ class ParameterOptimizerV3:
             }
         config["regime_weights"] = regime_weights
 
-        # Exit stages
-        risk_cfg = config.get("risk", {})
-        risk_cfg["exit_stages"] = {
+        # Exit stages — write at TOP LEVEL: BacktestEngine reads config.get("exit_stages")
+        # NOT under "risk:" — risk_config.yaml has no "risk:" wrapper, all keys are top-level
+        config["exit_stages"] = {
             "be_trigger_rr": params.get("be_trigger_rr", 1.0),
             "partial_close_rr": params.get("partial_close_rr", 1.5),
             "trail_activation_rr": params.get("trail_activation_rr", 2.0),
         }
 
-        # SL/TP
-        risk_cfg.setdefault("stop_loss", {})["atr_multiplier"] = params.get("trending_atr_sl_mult", 3.0)
-        risk_cfg.setdefault("take_profit", {})["atr_multiplier"] = params.get("tp_atr_mult", 5.0)
-        config["risk"] = risk_cfg
+        # SL/TP — write at TOP LEVEL: BacktestEngine reads config.get("stop_loss") etc.
+        sl_cfg = copy.deepcopy(config.get("stop_loss", {}))
+        sl_cfg["atr_multiplier"] = params.get("trending_atr_sl_mult", 3.0)
+        config["stop_loss"] = sl_cfg
+
+        tp_cfg = copy.deepcopy(config.get("take_profit", {}))
+        tp_cfg["atr_multiplier"] = params.get("tp_atr_mult", 5.0)
+        config["take_profit"] = tp_cfg
 
         # OB sensitivity
         smc_cfg = config.get("smc_indicators", {})
@@ -370,6 +443,12 @@ class ParameterOptimizerV3:
 
         # Adaptive scorer
         config["use_adaptive_scorer"] = True
+
+        # Phase 2: BOS quality filter — wired into confluence_weights
+        cw = config.get("confluence_weights", {})
+        cw["bos_solo_penalty"]       = params.get("bos_solo_penalty", 0.05)
+        cw["bos_ranging_fill_floor"] = params.get("bos_ranging_fill_floor", 0.38)
+        config["confluence_weights"] = cw
 
         return config
 

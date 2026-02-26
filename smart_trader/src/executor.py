@@ -99,7 +99,7 @@ STALE_TIGHTEN_MIN     = 90    # After 90 min with no progress, tighten SL
 STALE_PROGRESS_MULT   = 0.5   # "No progress" = profit < 50% of SL distance
 STALE_SL_REDUCE       = 0.5   # Reduce max loss to 50% of original SL
 SCRATCH_EXIT_MIN      = 180   # After 3 hours flat, close at ~breakeven
-SCRATCH_FLAT_PTS      = 3.0   # "Flat" = less than 3pt movement either way
+SCRATCH_FLAT_PTS      = 10.0  # "Flat" = less than 10pt movement either way (XAUUSD ATR ~20pt)
 
 
 # ── Position management ───────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ _stale_tightened_tickets: set[int] = set()  # prevent repeat stale tighten (fire
 _bot_closed_tickets: set[int] = set()  # tickets closed by bot (scratch/claude/etc)
 
 
-def manage_positions(symbol: str, cfg: dict, exit_params: dict = None) -> None:
+def manage_positions(symbol: str, cfg: dict, exit_params: dict = None, tracked: dict = None) -> None:
     """
     Multi-stage exit management for all open positions.
     Stage 0: Scratch exit (flat after 60min)
@@ -119,6 +119,8 @@ def manage_positions(symbol: str, cfg: dict, exit_params: dict = None) -> None:
     Stage 3: RR-based trailing stop on remainder (50% of peak profit)
 
     exit_params: optional adaptive params dict overriding module constants.
+    tracked: _tracked_positions from main.py — use its time_open (correct UTC)
+             instead of MT5 server-local p.time which is ~2h off on IC Markets.
     """
     positions = mt5c.get_positions(symbol)
     if not positions:
@@ -134,6 +136,13 @@ def manage_positions(symbol: str, cfg: dict, exit_params: dict = None) -> None:
         # Only manage OUR positions
         if pos.get("_raw") and pos["_raw"].magic != cfg.get("magic", 202602):
             continue
+        # Fix IC Markets server-local time bug: use tracked time_open (correct UTC)
+        # Also inject entry_sl (original SL before BE moves it) for stable sl_dist calculation
+        if tracked and pos["ticket"] in tracked:
+            tr = tracked[pos["ticket"]]
+            pos = {**pos, "time_open": tr["time_open"]}
+            if "entry_sl" in tr:
+                pos = {**pos, "entry_sl": tr["entry_sl"]}
         _manage_one(pos, price_info, cfg, now, exit_params)
 
 
@@ -156,11 +165,13 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
     _stale_min  = _ep.get("stale_tighten_min", STALE_TIGHTEN_MIN)
     _scratch_min = _ep.get("scratch_exit_min", SCRATCH_EXIT_MIN)
 
-    # SL distance from entry (original)
-    sl_dist = abs(entry - current_sl)
+    # SL distance — prefer entry_sl (original SL snapshot) for stable calculation.
+    # After BE triggers, current_sl == entry → sl_dist = 0 → thresholds break.
+    # entry_sl is injected from _tracked_positions where it's never updated post-entry.
+    _orig_sl = pos.get("entry_sl", current_sl)
+    sl_dist = abs(entry - _orig_sl)
     if sl_dist <= 0:
-        # SL already at entry (BE) — use a reference distance
-        # Estimate from TP distance / RR ratio
+        # Fallback: estimate from TP distance / RR ratio
         tp_dist = abs(current_tp - entry)
         sl_dist = tp_dist / 1.67 if tp_dist > 0 else 20.0
 
@@ -205,16 +216,23 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
 
     # ── Stage 0b: Time-based SL tighten (stale after _stale_min) ────────────
     # Fire ONCE per ticket — prevents recursive halving and log spam
+    logger.debug(
+        f"  stale_check | ticket={ticket} | age={age_min:.0f}min | stale_min={_stale_min} | "
+        f"pnl={profit_pts:+.1f} | sl_dist={sl_dist:.1f} | threshold={sl_dist*STALE_PROGRESS_MULT:.1f} | "
+        f"sl_below_entry={_sl_is_below_entry(direction, current_sl, entry)} | "
+        f"already_done={ticket in _stale_tightened_tickets}"
+    )
     if (ticket not in _stale_tightened_tickets
             and age_min >= _stale_min
             and profit_pts < sl_dist * STALE_PROGRESS_MULT
             and _sl_is_below_entry(direction, current_sl, entry)):
+        # Mark as handled immediately — prevents spam even if SL move is skipped
+        _stale_tightened_tickets.add(ticket)
         # Reduce max loss: move SL to half of original distance
         half_dist = sl_dist * STALE_SL_REDUCE
         if direction == "LONG":
             new_sl = round(entry - half_dist, 2)
             if new_sl > current_sl + 0.5:
-                _stale_tightened_tickets.add(ticket)
                 logger.bind(kind="TRADE").info(
                     f"STALE TIGHTEN | ticket={ticket} | {age_min:.0f}min | "
                     f"SL {current_sl:.2f}->{new_sl:.2f} (halved risk)"
@@ -231,7 +249,6 @@ def _manage_one(pos: dict, price_info: dict, cfg: dict, now: datetime, exit_para
         else:
             new_sl = round(entry + half_dist, 2)
             if new_sl < current_sl - 0.5:
-                _stale_tightened_tickets.add(ticket)
                 logger.bind(kind="TRADE").info(
                     f"STALE TIGHTEN | ticket={ticket} | {age_min:.0f}min | "
                     f"SL {current_sl:.2f}->{new_sl:.2f} (halved risk)"
@@ -384,6 +401,12 @@ def clear_bot_closed_tickets() -> None:
     _bot_closed_tickets.clear()
 
 
+def prune_closed_tickets(open_tickets: set[int]) -> None:
+    """Remove tickets from tracking sets that are no longer open positions."""
+    _scratched_tickets.difference_update(_scratched_tickets - open_tickets)
+    _stale_tightened_tickets.difference_update(_stale_tightened_tickets - open_tickets)
+
+
 # ── Claude Smart Exit Review ─────────────────────────────────────────────────
 
 def review_positions_with_claude(
@@ -391,6 +414,7 @@ def review_positions_with_claude(
     cfg: dict,
     claude_cfg: dict,
     market_data: dict,
+    tracked: dict = None,
 ) -> None:
     """
     Ask Claude to analyze each open position for OPTIMAL EXIT TIMING.
@@ -420,8 +444,8 @@ def review_positions_with_claude(
         sl        = pos["sl"]
         tp        = pos["tp"]
 
-        # Position age
-        time_open = pos.get("time_open")
+        # Position age — prefer tracked time_open (correct UTC) over MT5 server-local
+        time_open = (tracked.get(ticket, {}).get("time_open") if tracked else None) or pos.get("time_open")
         if time_open:
             duration_min = (now - time_open).total_seconds() / 60
         else:
@@ -431,8 +455,9 @@ def review_positions_with_claude(
         pnl_pts = (price - entry) if direction == "LONG" else (entry - price)
         pnl_usd = pos.get("profit", 0)
 
-        # SL distance
-        sl_dist = abs(entry - sl)
+        # SL distance — prefer entry_sl (original SL) for stable calculation after BE
+        entry_sl = (tracked.get(ticket, {}).get("entry_sl") if tracked else None) or sl
+        sl_dist = abs(entry - entry_sl)
         if sl_dist <= 0:
             tp_dist = abs(tp - entry)
             sl_dist = tp_dist / 1.67 if tp_dist > 0 else 20.0
@@ -451,7 +476,7 @@ def review_positions_with_claude(
         tp_remaining = abs(tp - price)
 
         # Suggested tighten SL (lock 60% of current profit)
-        if pnl_pts > 15:
+        if pnl_pts > 8:
             if direction == "LONG":
                 tighten_sl = round(entry + pnl_pts * 0.6, 2)
             else:
@@ -459,18 +484,32 @@ def review_positions_with_claude(
         else:
             tighten_sl = sl
 
+        # Peak profit and RR from tracked positions
+        peak_profit = (tracked.get(ticket, {}).get("peak_profit") if tracked else None) or max(pnl_pts, 0)
+        rr_ratio = pnl_pts / sl_dist if sl_dist > 0 else 0
+
         pos_data = {
             "price":          price,
             "atr":            market_data.get("atr", 15),
             "session":        market_data.get("session", "UNKNOWN"),
             "ema_trend":      market_data.get("ema_trend", "NEUTRAL"),
             "rsi":            market_data.get("rsi", 50),
+            "rsi_direction":  market_data.get("rsi_direction", "FLAT"),
             "pd_zone":        market_data.get("pd_zone", "EQUILIBRIUM"),
+            "ema_distance":   market_data.get("ema_distance", 0),
             "nearby_signals": market_data.get("nearby_signals", "none"),
+            "opposing_zones": market_data.get("opposing_zones", "none"),
+            "regime":         market_data.get("regime", "UNKNOWN"),
+            "spread":         market_data.get("spread", 0),
+            "m15_structure":  market_data.get("m15_structure", "N/A"),
+            "h1_structure":   market_data.get("h1_structure", "N/A"),
+            "daily_exhausted": market_data.get("daily_exhausted", False),
             "direction":      direction,
             "entry":          entry,
             "pnl_pts":        pnl_pts,
             "pnl_usd":        pnl_usd,
+            "peak_profit":    peak_profit,
+            "rr_ratio":       rr_ratio,
             "sl":             sl,
             "sl_dist":        sl_dist,
             "tp":             tp,
@@ -500,8 +539,8 @@ def review_positions_with_claude(
         est_tokens = metrics["est_input_tokens"] + metrics["est_output_tokens"]
 
         if action == "TAKE_PROFIT":
-            # Only close if profit exceeds minimum threshold
-            if pnl_pts > 15:
+            # Only close if profit exceeds minimum safety threshold (3pt per CLAUDE.md)
+            if pnl_pts > 3:
                 logger.bind(kind="TRADE").info(
                     f"CLAUDE TAKE PROFIT | ticket={ticket} | +{pnl_pts:.1f}pt — {reason} "
                     f"| {latency_s:.1f}s | ~{est_tokens} tokens"
@@ -523,11 +562,11 @@ def review_positions_with_claude(
                         claude_tokens=est_tokens,
                     )
             else:
-                logger.info(f"  TAKE_PROFIT ignored — only {pnl_pts:+.1f}pt (need >15pt)")
+                logger.info(f"  TAKE_PROFIT ignored — only {pnl_pts:+.1f}pt (need >3pt)")
 
         elif action == "TIGHTEN":
-            if pnl_pts < 15:
-                logger.info(f"  TIGHTEN ignored — only {pnl_pts:+.1f}pt (need >15pt)")
+            if pnl_pts < 8:
+                logger.info(f"  TIGHTEN ignored — only {pnl_pts:+.1f}pt (need >8pt)")
             elif (new_sl := response.get("new_sl", 0)) > 0:
                 # Validate: new SL must be tighter (better) than current
                 valid = (direction == "LONG" and new_sl > sl) or \
