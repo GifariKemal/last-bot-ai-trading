@@ -312,8 +312,11 @@ class OrderExecutor:
         })
 
         # 4. Check free margin
+        # Bug #56: was < 100 — hardcoded $100 floor blocked all trades on
+        # sub-$100 account ($94.31 balance). Actual margin for 0.01 lot
+        # XAUUSDm at 1:100 leverage is ~$50-52, so the real floor is $50.
         margin_free = account_info.get("margin_free", 0)
-        if margin_free < 100:  # Need at least $100
+        if margin_free < 50:  # Min margin for 0.01 lot gold at 1:100 leverage
             checks.append({
                 "check": "margin",
                 "passed": False,
