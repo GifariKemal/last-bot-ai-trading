@@ -1,0 +1,650 @@
+[
+  {
+    "id": "00_BASELINE",
+    "label": "Baseline (current)",
+    "success": true,
+    "trades": 222,
+    "win_rate": 52.7,
+    "profit_factor": 2.01,
+    "total_return": 21.2,
+    "max_drawdown": 2.54,
+    "avg_win": 36.04,
+    "avg_loss": -19.96,
+    "sharpe": 0.23,
+    "calmar": 0,
+    "expectancy": 9.55,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 60,
+        "wins": 31,
+        "losses": 29,
+        "win_rate": 51.67,
+        "total_profit": 272.81,
+        "avg_profit": 4.55,
+        "profit_factor": 1.41
+      },
+      "WEAK_TREND_UP": {
+        "trades": 76,
+        "wins": 45,
+        "losses": 31,
+        "win_rate": 59.21,
+        "total_profit": 491.97,
+        "avg_profit": 6.47,
+        "profit_factor": 1.8
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 36,
+        "wins": 11,
+        "losses": 25,
+        "win_rate": 30.56,
+        "total_profit": 321.14,
+        "avg_profit": 8.92,
+        "profit_factor": 1.57
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_UP": {
+        "trades": 46,
+        "wins": 27,
+        "losses": 19,
+        "win_rate": 58.7,
+        "total_profit": 837.97,
+        "avg_profit": 18.22,
+        "profit_factor": 4.3
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "01_RSI_RANGE",
+    "label": "Fix A: RSI range 40-70\u219240-80",
+    "success": true,
+    "trades": 245,
+    "win_rate": 50.61,
+    "profit_factor": 1.71,
+    "total_return": 18.57,
+    "max_drawdown": 3.34,
+    "avg_win": 36.09,
+    "avg_loss": -21.64,
+    "sharpe": 0.18,
+    "calmar": 0,
+    "expectancy": 7.58,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 66,
+        "wins": 34,
+        "losses": 32,
+        "win_rate": 51.52,
+        "total_profit": 277.73,
+        "avg_profit": 4.21,
+        "profit_factor": 1.36
+      },
+      "WEAK_TREND_UP": {
+        "trades": 90,
+        "wins": 49,
+        "losses": 41,
+        "win_rate": 54.44,
+        "total_profit": 246.67,
+        "avg_profit": 2.74,
+        "profit_factor": 1.26
+      },
+      "STRONG_TREND_UP": {
+        "trades": 48,
+        "wins": 27,
+        "losses": 21,
+        "win_rate": 56.25,
+        "total_profit": 876.03,
+        "avg_profit": 18.25,
+        "profit_factor": 3.7
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 37,
+        "wins": 11,
+        "losses": 26,
+        "win_rate": 29.73,
+        "total_profit": 260.76,
+        "avg_profit": 7.05,
+        "profit_factor": 1.45
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "02_SESSION_BONUS",
+    "label": "Fix B: Session bonus in scorer",
+    "success": true,
+    "trades": 222,
+    "win_rate": 52.7,
+    "profit_factor": 2.01,
+    "total_return": 21.2,
+    "max_drawdown": 2.54,
+    "avg_win": 36.04,
+    "avg_loss": -19.96,
+    "sharpe": 0.23,
+    "calmar": 0,
+    "expectancy": 9.55,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 60,
+        "wins": 31,
+        "losses": 29,
+        "win_rate": 51.67,
+        "total_profit": 272.81,
+        "avg_profit": 4.55,
+        "profit_factor": 1.41
+      },
+      "WEAK_TREND_UP": {
+        "trades": 76,
+        "wins": 45,
+        "losses": 31,
+        "win_rate": 59.21,
+        "total_profit": 491.97,
+        "avg_profit": 6.47,
+        "profit_factor": 1.8
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 36,
+        "wins": 11,
+        "losses": 25,
+        "win_rate": 30.56,
+        "total_profit": 321.14,
+        "avg_profit": 8.92,
+        "profit_factor": 1.57
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_UP": {
+        "trades": 46,
+        "wins": 27,
+        "losses": 19,
+        "win_rate": 58.7,
+        "total_profit": 837.97,
+        "avg_profit": 18.22,
+        "profit_factor": 4.3
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "03_TRAIL_GAP",
+    "label": "Fix C: Trail activation 2.71R\u21921.8R",
+    "success": true,
+    "trades": 222,
+    "win_rate": 52.7,
+    "profit_factor": 2.01,
+    "total_return": 21.2,
+    "max_drawdown": 2.54,
+    "avg_win": 36.04,
+    "avg_loss": -19.96,
+    "sharpe": 0.23,
+    "calmar": 0,
+    "expectancy": 9.55,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 60,
+        "wins": 31,
+        "losses": 29,
+        "win_rate": 51.67,
+        "total_profit": 272.81,
+        "avg_profit": 4.55,
+        "profit_factor": 1.41
+      },
+      "WEAK_TREND_UP": {
+        "trades": 76,
+        "wins": 45,
+        "losses": 31,
+        "win_rate": 59.21,
+        "total_profit": 491.97,
+        "avg_profit": 6.47,
+        "profit_factor": 1.8
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 36,
+        "wins": 11,
+        "losses": 25,
+        "win_rate": 30.56,
+        "total_profit": 321.14,
+        "avg_profit": 8.92,
+        "profit_factor": 1.57
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_UP": {
+        "trades": 46,
+        "wins": 27,
+        "losses": 19,
+        "win_rate": 58.7,
+        "total_profit": 837.97,
+        "avg_profit": 18.22,
+        "profit_factor": 4.3
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "04_RSI_BOUNCE",
+    "label": "Fix D: RSI bounce threshold 75\u219278",
+    "success": true,
+    "trades": 233,
+    "win_rate": 49.36,
+    "profit_factor": 1.67,
+    "total_return": 16.73,
+    "max_drawdown": 3.01,
+    "avg_win": 36.35,
+    "avg_loss": -21.25,
+    "sharpe": 0.17,
+    "calmar": 0,
+    "expectancy": 7.18,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 61,
+        "wins": 30,
+        "losses": 31,
+        "win_rate": 49.18,
+        "total_profit": 268.84,
+        "avg_profit": 4.41,
+        "profit_factor": 1.39
+      },
+      "WEAK_TREND_UP": {
+        "trades": 84,
+        "wins": 44,
+        "losses": 40,
+        "win_rate": 52.38,
+        "total_profit": 100.29,
+        "avg_profit": 1.19,
+        "profit_factor": 1.11
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 38,
+        "wins": 13,
+        "losses": 25,
+        "win_rate": 34.21,
+        "total_profit": 361.87,
+        "avg_profit": 9.52,
+        "profit_factor": 1.67
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_UP": {
+        "trades": 46,
+        "wins": 25,
+        "losses": 21,
+        "win_rate": 54.35,
+        "total_profit": 745.74,
+        "avg_profit": 16.21,
+        "profit_factor": 3.11
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "05_TIME_EXIT",
+    "label": "Fix E: Time exit 48h\u219224h",
+    "success": true,
+    "trades": 226,
+    "win_rate": 53.1,
+    "profit_factor": 2.01,
+    "total_return": 21.16,
+    "max_drawdown": 2.54,
+    "avg_win": 35.03,
+    "avg_loss": -19.7,
+    "sharpe": 0.23,
+    "calmar": 0,
+    "expectancy": 9.36,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 60,
+        "wins": 31,
+        "losses": 29,
+        "win_rate": 51.67,
+        "total_profit": 259.3,
+        "avg_profit": 4.32,
+        "profit_factor": 1.39
+      },
+      "WEAK_TREND_UP": {
+        "trades": 80,
+        "wins": 48,
+        "losses": 32,
+        "win_rate": 60.0,
+        "total_profit": 557.17,
+        "avg_profit": 6.96,
+        "profit_factor": 1.92
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 36,
+        "wins": 11,
+        "losses": 25,
+        "win_rate": 30.56,
+        "total_profit": 321.14,
+        "avg_profit": 8.92,
+        "profit_factor": 1.57
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_UP": {
+        "trades": 46,
+        "wins": 27,
+        "losses": 19,
+        "win_rate": 58.7,
+        "total_profit": 781.91,
+        "avg_profit": 17.0,
+        "profit_factor": 4.08
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "06_BOLLINGER",
+    "label": "Fix F: Bollinger confirmation added",
+    "success": true,
+    "trades": 222,
+    "win_rate": 52.7,
+    "profit_factor": 2.01,
+    "total_return": 21.2,
+    "max_drawdown": 2.54,
+    "avg_win": 36.04,
+    "avg_loss": -19.96,
+    "sharpe": 0.23,
+    "calmar": 0,
+    "expectancy": 9.55,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 60,
+        "wins": 31,
+        "losses": 29,
+        "win_rate": 51.67,
+        "total_profit": 272.81,
+        "avg_profit": 4.55,
+        "profit_factor": 1.41
+      },
+      "WEAK_TREND_UP": {
+        "trades": 76,
+        "wins": 45,
+        "losses": 31,
+        "win_rate": 59.21,
+        "total_profit": 491.97,
+        "avg_profit": 6.47,
+        "profit_factor": 1.8
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 36,
+        "wins": 11,
+        "losses": 25,
+        "win_rate": 30.56,
+        "total_profit": 321.14,
+        "avg_profit": 8.92,
+        "profit_factor": 1.57
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_UP": {
+        "trades": 46,
+        "wins": 27,
+        "losses": 19,
+        "win_rate": 58.7,
+        "total_profit": 837.97,
+        "avg_profit": 18.22,
+        "profit_factor": 4.3
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "07_RSI_PLUS_SESSION",
+    "label": "Fix A+B: RSI range + Session bonus",
+    "success": true,
+    "trades": 245,
+    "win_rate": 50.61,
+    "profit_factor": 1.71,
+    "total_return": 18.57,
+    "max_drawdown": 3.34,
+    "avg_win": 36.09,
+    "avg_loss": -21.64,
+    "sharpe": 0.18,
+    "calmar": 0,
+    "expectancy": 7.58,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 66,
+        "wins": 34,
+        "losses": 32,
+        "win_rate": 51.52,
+        "total_profit": 277.73,
+        "avg_profit": 4.21,
+        "profit_factor": 1.36
+      },
+      "WEAK_TREND_UP": {
+        "trades": 90,
+        "wins": 49,
+        "losses": 41,
+        "win_rate": 54.44,
+        "total_profit": 246.67,
+        "avg_profit": 2.74,
+        "profit_factor": 1.26
+      },
+      "STRONG_TREND_UP": {
+        "trades": 48,
+        "wins": 27,
+        "losses": 21,
+        "win_rate": 56.25,
+        "total_profit": 876.03,
+        "avg_profit": 18.25,
+        "profit_factor": 3.7
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 37,
+        "wins": 11,
+        "losses": 26,
+        "win_rate": 29.73,
+        "total_profit": 260.76,
+        "avg_profit": 7.05,
+        "profit_factor": 1.45
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  },
+  {
+    "id": "08_ALL_FIXES",
+    "label": "ALL FIXES COMBINED",
+    "success": true,
+    "trades": 248,
+    "win_rate": 49.19,
+    "profit_factor": 1.73,
+    "total_return": 19.01,
+    "max_drawdown": 3.07,
+    "avg_win": 36.81,
+    "avg_loss": -20.56,
+    "sharpe": 0.18,
+    "calmar": 0,
+    "expectancy": 7.66,
+    "net_profit": 0,
+    "regime_breakdown": {
+      "WEAK_TREND_DOWN": {
+        "trades": 68,
+        "wins": 32,
+        "losses": 36,
+        "win_rate": 47.06,
+        "total_profit": 377.08,
+        "avg_profit": 5.55,
+        "profit_factor": 1.49
+      },
+      "WEAK_TREND_UP": {
+        "trades": 96,
+        "wins": 52,
+        "losses": 44,
+        "win_rate": 54.17,
+        "total_profit": 343.22,
+        "avg_profit": 3.58,
+        "profit_factor": 1.38
+      },
+      "STRONG_TREND_UP": {
+        "trades": 43,
+        "wins": 23,
+        "losses": 20,
+        "win_rate": 53.49,
+        "total_profit": 665.84,
+        "avg_profit": 15.48,
+        "profit_factor": 2.86
+      },
+      "VOLATILE_BREAKOUT": {
+        "trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "total_profit": 95.44,
+        "avg_profit": 47.72,
+        "profit_factor": 0
+      },
+      "STRONG_TREND_DOWN": {
+        "trades": 37,
+        "wins": 12,
+        "losses": 25,
+        "win_rate": 32.43,
+        "total_profit": 318.51,
+        "avg_profit": 8.61,
+        "profit_factor": 1.59
+      },
+      "RANGE_WIDE": {
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate": 50.0,
+        "total_profit": 100.58,
+        "avg_profit": 50.29,
+        "profit_factor": 9.83
+      }
+    }
+  }
+]

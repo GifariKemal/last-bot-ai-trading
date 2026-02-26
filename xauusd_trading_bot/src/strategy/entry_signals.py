@@ -25,8 +25,13 @@ class EntrySignalGenerator:
     # RSI hard block: filters genuinely overextended RSI readings (Check #5)
     # XAUUSD strong trend: RSI typically 65-80. Above 85 = overextended, risk of sharp reversal.
     # Bounce protection (Check #6) handles RSI coming DOWN from 75+; hard block handles RSI STILL RISING.
-    RSI_HARD_OVERBOUGHT = 85  # Hard block LONG above this (overextended bull)
-    RSI_HARD_OVERSOLD = 15   # Hard block SHORT below this (overextended bear)
+    #
+    # Backtest result (180d, compare_rsi_extreme.py, 2026-02-26):
+    #   Symmetric 20/80 → PF 1.86→2.14 (+0.28), WR 50.9→54.1%, DD 2.54→1.84%
+    #   SELL-WR improved 41.8→44.0% by filtering RSI<20 shorts (extreme oversold = likely bounce)
+    #   Was: HARD_OB=85, HARD_OS=15
+    RSI_HARD_OVERBOUGHT = 80  # Hard block LONG above this (was 85 — backtest: 80 better)
+    RSI_HARD_OVERSOLD = 20   # Hard block SHORT below this (was 15 — backtest: 20 better, blocks shorts at extreme oversold)
 
     def __init__(self, config: Dict):
         """

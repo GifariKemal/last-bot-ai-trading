@@ -279,13 +279,7 @@ def count_signals(
     if ote and ote[0] <= price <= ote[1]:
         signals.append("OTE")
 
-    # Premium/Discount bonus
-    if direction == "LONG" and pd_zone == "DISCOUNT":
-        signals.append("Discount")
-    elif direction == "SHORT" and pd_zone == "PREMIUM":
-        signals.append("Premium")
-
-    # Remove duplicates, keep order
+    # Remove duplicates, keep order (before adding Tier-3)
     seen = set()
     unique = []
     for s in signals:
@@ -293,4 +287,17 @@ def count_signals(
             seen.add(s)
             unique.append(s)
 
-    return len(unique), unique
+    # Gate count = only Tier-1/Tier-2 signals (structure + confirmation)
+    gate_count = len(unique)
+
+    # Premium/Discount bonus (Tier-3: contextual bias only, NOT counted for gate)
+    if direction == "LONG" and pd_zone == "DISCOUNT":
+        if "Discount" not in seen:
+            unique.append("Discount")
+            seen.add("Discount")
+    elif direction == "SHORT" and pd_zone == "PREMIUM":
+        if "Premium" not in seen:
+            unique.append("Premium")
+            seen.add("Premium")
+
+    return gate_count, unique

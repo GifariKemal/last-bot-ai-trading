@@ -43,6 +43,7 @@ import llm_comparator as llm_cmp
 import regime_detector as rdet
 import trade_tracker as tt
 import adaptive_engine as ae
+import chart_visualizer as cv
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -427,7 +428,7 @@ def run_scan_cycle(cfg: dict) -> None:
     db_path    = cfg["paths"]["zone_cache_db"]
     proximity  = t_cfg["zone_proximity_pts"]
     min_conf   = t_cfg["min_confidence"]
-    min_signals = 3                          # minimum SMC signals before calling Claude
+    min_signals = 1                          # bare minimum: at least 1 SMC signal to report
     max_pos    = t_cfg["max_positions"]
     max_dir    = t_cfg["max_per_direction"]
     max_dd     = t_cfg["max_drawdown_pct"]
@@ -596,59 +597,20 @@ def run_scan_cycle(cfg: dict) -> None:
 
         zone = primary
 
-        # Minimum signal count gate — must have ≥3 SMC signals to call Claude
+        # ── GATE 1: Minimum signal count (bare minimum — at least 1 SMC signal) ─
+        tier3_present = any(s in ("Premium", "Discount") for s in signals)
+        sig_label = (f"{signal_count}+T3" if tier3_present else str(signal_count))
         if signal_count < min_signals:
             logger.info(
-                f"  Skip {direction} — {signal_count}/{min_signals} signals "
-                f"[{', '.join(signals)}] (need >={min_signals})"
-            )
-            logger.bind(kind="MARKET").debug(
-                f"  SKIP {direction} | reason=insufficient_signals({signal_count}/{min_signals})"
+                f"  Skip {direction} — {sig_label}/{min_signals} signals "
+                f"[{', '.join(signals)}] (need >={min_signals} Tier-1/2)"
             )
             continue
 
-        # RSI extreme gate
-        if direction == "LONG" and rsi_val > 85:
-            logger.info(f"  Skip LONG — RSI {rsi_val:.0f} > 85 (overbought)")
-            logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=RSI_overbought({rsi_val:.0f})")
-            continue
-        if direction == "SHORT" and rsi_val < 15:
-            logger.info(f"  Skip SHORT — RSI {rsi_val:.0f} < 15 (oversold)")
-            logger.bind(kind="MARKET").debug(f"  SKIP SHORT | reason=RSI_oversold({rsi_val:.0f})")
-            continue
-
-        # ── Trend filter: don't trade against H1 EMA trend ──────────────
-        # CHoCH override: allow counter-trend if CHoCH detected + regime is reversal/ranging
+        # ── GATE 2: Re-entry cooldown (mechanical safety) ──────────────────
         zone_has_choch = any("CHOCH" in s.upper() for s in signals)
         choch_detected = has_choch or zone_has_choch
-        if direction == "SHORT" and ema_trend == "BULLISH":
-            if _adaptive and _adaptive.should_allow_counter_trend(choch_detected, regime_cat):
-                logger.info(f"  CHoCH override: allowing SHORT despite BULLISH EMA (regime={regime_label})")
-            else:
-                logger.info(f"  Skip SHORT — H1 EMA trend is BULLISH (counter-trend)")
-                logger.bind(kind="MARKET").debug(f"  SKIP SHORT | reason=EMA_counter_trend(BULLISH)")
-                continue
-        if direction == "LONG" and ema_trend == "BEARISH":
-            if _adaptive and _adaptive.should_allow_counter_trend(choch_detected, regime_cat):
-                logger.info(f"  CHoCH override: allowing LONG despite BEARISH EMA (regime={regime_label})")
-            else:
-                logger.info(f"  Skip LONG — H1 EMA trend is BEARISH (counter-trend)")
-                logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=EMA_counter_trend(BEARISH)")
-                continue
 
-        # ── P/D Zone directional gate (SMC: BUY at Discount, SELL at Premium) ─
-        # CHoCH reversal bypasses gate — reversal can occur at either zone extreme
-        if not choch_detected:
-            if direction == "LONG" and pd_zone == "PREMIUM":
-                logger.info(f"  Skip LONG — price in PREMIUM zone (SMC: buy at discount only)")
-                logger.bind(kind="MARKET").debug(f"  SKIP LONG | reason=PD_zone_PREMIUM")
-                continue
-            if direction == "SHORT" and pd_zone == "DISCOUNT":
-                logger.info(f"  Skip SHORT — price in DISCOUNT zone (SMC: sell at premium only)")
-                logger.bind(kind="MARKET").debug(f"  SKIP SHORT | reason=PD_zone_DISCOUNT")
-                continue
-
-        # ── Adaptive re-entry cooldown ────────────────────────────────────
         _ep = _adaptive.get_entry_params(regime_cat) if _adaptive else {}
         base_min_conf = _ep.get("min_confidence", min_conf) if _adaptive else min_conf
         reentry_ok, effective_min_conf = _check_reentry_cooldown(
@@ -657,7 +619,7 @@ def run_scan_cycle(cfg: dict) -> None:
         if not reentry_ok:
             continue
 
-        # Risk filters
+        # ── GATE 3: Risk filters (mechanical safety) ───────────────────────
         risk_ok, risk_msg = scan.check_risk_filters(
             account, positions, direction, max_pos, max_dir, max_dd, free_m
         )
@@ -665,18 +627,40 @@ def run_scan_cycle(cfg: dict) -> None:
             logger.info(f"  Skip {direction} — {risk_msg}")
             continue
 
-        # ── Algo pre-score before Claude call ──────────────────────────────
+        # ── Data capture: algo pre-score (INFO only, not a gate) ───────────
         if _adaptive:
-            pre_score, should_call = _adaptive.algo_pre_score(
+            pre_score, _ = _adaptive.algo_pre_score(
                 signal_count, regime_cat, session["name"], direction,
-                ema_trend, rsi_val, pd_zone, choch_detected,
+                ema_trend, rsi_val, pd_zone, choch_detected, signals,
             )
-            if not should_call:
-                logger.info(f"  Pre-score {pre_score:.2f} < 0.35 — skip Claude call")
-                _attempted_zones.add(zkey)
-                continue
         else:
             pre_score = 0.50
+
+        # ── Data capture: signal quality analysis for Claude ───────────────
+        has_structure = any(s in ("BOS", "CHoCH") for s in signals)
+        has_ob = "OB" in signals
+        has_fvg = "FVG" in signals
+        has_m15 = "M15" in signals
+        tier1_count = sum(1 for s in signals if s in ("BOS", "OB", "LiqSweep"))
+        tier2_count = sum(1 for s in signals if s in ("FVG", "CHoCH", "Breaker", "M15", "OTE"))
+
+        # EMA alignment assessment (data for Claude, not a gate)
+        ema_aligned = (direction == "LONG" and ema_trend == "BULLISH") or \
+                      (direction == "SHORT" and ema_trend == "BEARISH")
+        ema_counter = (direction == "LONG" and ema_trend == "BEARISH") or \
+                      (direction == "SHORT" and ema_trend == "BULLISH")
+
+        # P/D zone assessment (data for Claude, not a gate)
+        pd_aligned = (direction == "LONG" and pd_zone == "DISCOUNT") or \
+                     (direction == "SHORT" and pd_zone == "PREMIUM")
+        pd_opposing = (direction == "LONG" and pd_zone == "PREMIUM") or \
+                      (direction == "SHORT" and pd_zone == "DISCOUNT")
+
+        # All nearby zone details for Claude
+        nearby_zone_details = [
+            f"{z['type']}@{z.get('high') or z.get('level', 0):.0f}({z.get('distance_pts', 0):.1f}pt)"
+            for z in dir_zones
+        ]
 
         # ── Build SL/TP (adaptive regime params) ──────────────────────────────
         if atr_val <= 0:
@@ -710,7 +694,7 @@ def run_scan_cycle(cfg: dict) -> None:
         except Exception:
             context = ""
 
-        # ── Setup dict for Claude ─────────────────────────────────────────────
+        # ── Setup dict for Claude (enriched — Claude is the primary decision maker)
         setup = {
             "price":        price,
             "spread":       price_info.get("spread", 0),
@@ -744,13 +728,29 @@ def run_scan_cycle(cfg: dict) -> None:
                 t_cfg.get("min_lot", 0.01),
             ),
             "context":      context,
+            # ── Enriched data (Claude decides, not hard gates) ──────────
+            "has_structure":     has_structure,
+            "has_ob":            has_ob,
+            "has_fvg":           has_fvg,
+            "has_m15":           has_m15,
+            "tier1_count":       tier1_count,
+            "tier2_count":       tier2_count,
+            "ema_aligned":       ema_aligned,
+            "ema_counter":       ema_counter,
+            "pd_aligned":        pd_aligned,
+            "pd_opposing":       pd_opposing,
+            "nearby_zones":      nearby_zone_details,
         }
 
+        # Log enriched data for observability
+        _ema_tag = "aligned" if ema_aligned else ("counter" if ema_counter else "neutral")
+        _pd_tag = "aligned" if pd_aligned else ("opposing" if pd_opposing else "neutral")
         logger.info(
             f"  Validating {direction} | {zone['type']} @ {zone.get('level') or zone.get('high', price):.0f} | "
-            f"signals={signal_count} [{', '.join(signals)}] | "
-            f"dist={zone['distance_pts']:.1f}pt | SL={sl:.0f} | TP={tp:.0f} | RR={rr:.1f} | "
-            f"lot={setup['lot']:.2f}"
+            f"signals={signal_count} [{', '.join(signals)}] | T1={tier1_count} T2={tier2_count} | "
+            f"struct={'Y' if has_structure else 'N'} | EMA={_ema_tag} | P/D={_pd_tag} | "
+            f"pre_score={pre_score:.2f} | "
+            f"dist={zone['distance_pts']:.1f}pt | SL={sl:.0f} | TP={tp:.0f} | RR={rr:.1f}"
         )
 
         # ── Call Claude ───────────────────────────────────────────────────────
@@ -843,7 +843,8 @@ def run_scan_cycle(cfg: dict) -> None:
             logger.info(
                 f"  ORDER FILLED | ticket={ticket} | {decision} @ {result['price']:.2f} | "
                 f"SL={exec_sl:.2f} | TP={exec_tp:.2f} | lot={setup['lot']:.2f} | "
-                f"RR={rr:.1f} | conf={confidence:.2f} | {session['name']}"
+                f"RR={rr:.1f} | conf={confidence:.2f} | {session['name']} | "
+                f"regime={regime_label} | pre_score={pre_score:.2f}"
             )
             # ── Journal log — structured ENTRY record ─────────────────────
             logger.bind(kind="JOURNAL").info(
@@ -851,6 +852,9 @@ def run_scan_cycle(cfg: dict) -> None:
                 f"price={result['price']:.2f} | sl={exec_sl:.2f} | tp={exec_tp:.2f} | "
                 f"lot={setup['lot']:.2f} | rr={rr:.1f} | "
                 f"zone={zone.get('type')} | signals=[{', '.join(signals)}] | "
+                f"T1={tier1_count} T2={tier2_count} | struct={'Y' if has_structure else 'N'} | "
+                f"EMA={_ema_tag} | P/D={_pd_tag} | regime={regime_label} | "
+                f"pre_score={pre_score:.2f} | "
                 f"conf={confidence:.2f} | session={session['name']} | reason={reason}"
             )
 
@@ -876,9 +880,54 @@ def run_scan_cycle(cfg: dict) -> None:
                     atr=atr_val,
                     claude_latency_ms=claude_metrics["latency_ms"],
                     claude_tokens=_cl_tokens,
+                    regime=regime_label,
+                    pd_zone=pd_zone,
+                    pre_score=pre_score,
+                    tier1_count=tier1_count,
+                    tier2_count=tier2_count,
+                    has_structure=has_structure,
+                    ema_aligned=ema_aligned,
+                    pd_aligned=pd_aligned,
                 )
                 global _session_trades
                 _session_trades += 1
+
+            # ── Chart visualization — HD entry chart to Telegram ──────────────
+            try:
+                # Fetch extended M15 data for chart (60 bars = 15h context)
+                df_m15_chart = mt5c.get_candles(symbol, mt5.TIMEFRAME_M15, 65)
+                chart_entry = {
+                    "ticket":     ticket,
+                    "direction":  decision,
+                    "price":      result["price"],
+                    "sl":         exec_sl,
+                    "tp":         exec_tp,
+                    "confidence": confidence,
+                    "reason":     reason,
+                    "signals":    signals,
+                    "zone_type":  zone.get("type", ""),
+                    "regime":     regime_label,
+                    "session":    session["name"],
+                    "rsi":        rsi_val,
+                    "ema_trend":  ema_trend,
+                    "pd_zone":    pd_zone,
+                    "atr":        atr_val,
+                    "pre_score":  pre_score,
+                    "lot":        setup["lot"],
+                }
+                chart_path = cv.generate_entry_chart(
+                    df_m15_chart, df_h1, chart_entry, nearby,
+                )
+                if chart_path and _tg:
+                    caption = (
+                        f"<b>ENTRY CHART</b> | XAUUSD {decision}\n"
+                        f"Conf: {confidence:.2f} | {regime_label} | {session['name']}\n"
+                        f"Signals: {' + '.join(signals)}"
+                    )
+                    _tg.send_chart(chart_path, caption)
+                    logger.info(f"  Entry chart sent to Telegram: {chart_path}")
+            except Exception as e:
+                logger.warning(f"  Chart generation skipped: {e}")
 
         # Only one trade per scan cycle
         break
@@ -1214,10 +1263,10 @@ def main():
             symbol=mt5_cfg.get("symbol", "XAUUSD"),
             leverage=acct.get("leverage", 100),
             model=c_cfg_main.get("model", "claude-opus-4-6"),
-            sl_mult=t_cfg_main.get("sl_atr_mult", 3.0),
-            tp_mult=t_cfg_main.get("tp_atr_mult", 5.0),
+            sl_mult=t_cfg_main.get("sl_atr_mult", 2.0),
+            tp_mult=t_cfg_main.get("tp_atr_mult", 3.0),
             max_pos=t_cfg_main.get("max_positions", 1),
-            min_signals=3,
+            min_signals=1,
             min_conf=t_cfg_main.get("min_confidence", 0.70),
         )
 

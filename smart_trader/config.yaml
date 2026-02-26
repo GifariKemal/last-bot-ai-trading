@@ -52,46 +52,46 @@ adaptive:
   enabled: true
   min_trades_for_adaptation: 20
   max_shift_pct: 0.25
-  regime_params:  # Optuna-optimized (100-trial, Trial #64, PF=1.22, WR=35.2%, Net=+614pt)
+  regime_params:  # OPTIMAL config — tighter SL/TP for realistic H1 targets (backtest 6mo, TP hit 10.6%)
     trending:
-      sl_atr_mult: 2.75
-      tp_atr_mult: 7.0
-      min_confidence: 0.70
-      be_trigger_mult: 0.3
-      lock_trigger_mult: 1.4
-      trail_keep_pct: 0.70
-      stale_tighten_min: 120
-      scratch_exit_min: 330
-    ranging:
-      sl_atr_mult: 2.50
-      tp_atr_mult: 6.0
+      sl_atr_mult: 2.0
+      tp_atr_mult: 3.0
       min_confidence: 0.70
       be_trigger_mult: 0.4
-      lock_trigger_mult: 1.5
-      trail_keep_pct: 0.30
-      stale_tighten_min: 90
-      scratch_exit_min: 210
-    breakout:
-      sl_atr_mult: 3.25
-      tp_atr_mult: 5.5
-      min_confidence: 0.70
-      be_trigger_mult: 0.4
-      lock_trigger_mult: 1.4
-      trail_keep_pct: 0.40
-      stale_tighten_min: 90
-      scratch_exit_min: 120
-    reversal:
-      sl_atr_mult: 3.00
-      tp_atr_mult: 5.0
-      min_confidence: 0.70
-      be_trigger_mult: 0.6
-      lock_trigger_mult: 1.3
+      lock_trigger_mult: 1.2
       trail_keep_pct: 0.55
-      stale_tighten_min: 180
-      scratch_exit_min: 60
+      stale_tighten_min: 75
+      scratch_exit_min: 180
+    ranging:
+      sl_atr_mult: 1.8
+      tp_atr_mult: 2.5
+      min_confidence: 0.70
+      be_trigger_mult: 0.4
+      lock_trigger_mult: 1.0
+      trail_keep_pct: 0.50
+      stale_tighten_min: 60
+      scratch_exit_min: 150
+    breakout:
+      sl_atr_mult: 2.5
+      tp_atr_mult: 4.0
+      min_confidence: 0.70
+      be_trigger_mult: 0.5
+      lock_trigger_mult: 1.3
+      trail_keep_pct: 0.50
+      stale_tighten_min: 90
+      scratch_exit_min: 180
+    reversal:
+      sl_atr_mult: 1.8
+      tp_atr_mult: 2.5
+      min_confidence: 0.70
+      be_trigger_mult: 0.4
+      lock_trigger_mult: 1.0
+      trail_keep_pct: 0.50
+      stale_tighten_min: 60
+      scratch_exit_min: 120
   bounds:
-    sl_atr_mult: [1.0, 3.5]
-    tp_atr_mult: [2.0, 7.0]
+    sl_atr_mult: [1.0, 3.0]
+    tp_atr_mult: [1.5, 5.0]
     min_confidence: [0.60, 0.90]
     be_trigger_mult: [0.3, 1.0]
     lock_trigger_mult: [0.8, 2.5]

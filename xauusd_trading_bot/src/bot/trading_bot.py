@@ -363,7 +363,7 @@ class TradingBot:
                 mkt_reason = session_check.get("reason", "")
                 opens_in = session_check.get("opens_in_minutes")
 
-                # Telegram notification: only when market OPENS (not on close — less noise)
+                # Telegram notification on market state transitions
                 if is_allowed and self._market_allowed_prev is False:
                     # Transition: closed → open
                     self.telegram.send_market_status("OPEN", f"Trading resumed — {mkt_reason}")
@@ -371,6 +371,11 @@ class TradingBot:
                 elif not is_allowed and self._market_allowed_prev is True:
                     # Transition: open → closed
                     self.logger.info(f"Market CLOSED: {mkt_reason}")
+                    self.telegram.send_market_status(
+                        mkt_status if mkt_status in ("MAINTENANCE", "WEEKEND") else "CLOSED",
+                        mkt_reason,
+                        opens_in_minutes=int(opens_in) if opens_in is not None else None,
+                    )
                 self._market_allowed_prev = is_allowed
 
                 if not is_allowed:
@@ -472,6 +477,12 @@ class TradingBot:
                         self._sl_cooldown[dir_key] = datetime.utcnow()  # wall-clock, not Polars time
                         self.logger.info(
                             f"SL COOLDOWN: {dir_key} blocked for {self._sl_cooldown_candles} candles"
+                        )
+                        _cd_min = int(self._sl_cooldown_candles * 15)
+                        self.telegram.send_bot_status(
+                            f"\u23f8 SL COOLDOWN \u2014 {dir_key}",
+                            f"\u203a {dir_key} entries blocked for {self._sl_cooldown_candles} candles ({_cd_min}min)\n"
+                            f"\u203a Resumes automaticaly after cooldown",
                         )
 
                 # 4. Check risk limits (only blocks NEW entries, not exit management)
@@ -1426,6 +1437,12 @@ class TradingBot:
                             self.logger.info(
                                 f"SL COOLDOWN: {dir_key} blocked for {self._sl_cooldown_candles} candles"
                             )
+                            _cd_min = int(self._sl_cooldown_candles * 15)
+                            self.telegram.send_bot_status(
+                                f"\u23f8 SL COOLDOWN \u2014 {dir_key}",
+                                f"\u203a {dir_key} entries blocked for {self._sl_cooldown_candles} candles ({_cd_min}min)\n"
+                                f"\u203a Resumes automatically after cooldown",
+                            )
 
         except Exception as e:
             self.logger.error(f"Error managing positions: {e}")
@@ -1573,7 +1590,7 @@ class TradingBot:
                         self.logger.info(
                             f"SL COOLDOWN ACTIVE: {sig_dir} blocked ({remaining:.1f} candles remaining)"
                         )
-                        return {"passed": False, "reason": f"BULL: SL cooldown {sig_dir} ({remaining:.0f} candles) | BEAR: SL cooldown {sig_dir} ({remaining:.0f} candles)"}
+                        return {"passed": False, "quality_tier": entry_quality.tier.label, "reason": f"BULL: SL cooldown {sig_dir} ({remaining:.0f}c) | BEAR: SL cooldown {sig_dir} ({remaining:.0f}c)"}
                     else:
                         # Cooldown expired, remove
                         del self._sl_cooldown[sig_dir]
@@ -1588,7 +1605,7 @@ class TradingBot:
                     f"DIR LIMIT: {sig_dir} blocked — {len(same_dir_positions)}/{self._max_per_direction} "
                     f"already open in this direction"
                 )
-                return {"passed": False, "reason": f"BULL: Direction limit ({sig_dir}) | BEAR: Direction limit ({sig_dir})"}
+                return {"passed": False, "quality_tier": entry_quality.tier.label, "reason": f"BULL: Direction limit ({sig_dir}) | BEAR: Direction limit ({sig_dir})"}
 
             # Check position spacing (prevent entries at same price level)
             entry_price_check = entry_signal["price"]
@@ -1602,7 +1619,7 @@ class TradingBot:
                             f"#{p.get('ticket')} @ {existing_price:.2f} "
                             f"({distance:.1f} pips, min {self._min_spacing_pips})"
                         )
-                        return {"passed": False, "reason": f"BULL: Too close to #{p.get('ticket')} ({distance:.1f}pts) | BEAR: Spacing block"}
+                        return {"passed": False, "quality_tier": entry_quality.tier.label, "reason": f"BULL: Spacing too close #{p.get('ticket')} ({distance:.1f}pts) | BEAR: Spacing block"}
 
             # Calculate SL/TP
             vol_level = market_data["volatility_analysis"].get("level")
@@ -1652,7 +1669,7 @@ class TradingBot:
                     reasons = micro_check.get('reasons', [])
                     self.logger.info(f"Micro account rejected: {reasons}")
                     reason_str = reasons[0] if reasons else "Micro account limit"
-                    return {"passed": False, "reason": f"BULL: {reason_str} | BEAR: {reason_str}"}
+                    return {"passed": False, "quality_tier": entry_quality.tier.label, "reason": f"BULL: Micro acct — {reason_str} | BEAR: Micro acct — {reason_str}"}
 
             # Calculate position size
             vol_value = vol_level.value if hasattr(vol_level, "value") else str(vol_level)
@@ -1758,7 +1775,7 @@ class TradingBot:
                     "regime": market_data.get("regime", ""),
                     "comment": trade_comment,
                 })
-                return {"passed": True, "reason": "All gates passed \u2014 entry executed"}
+                return {"passed": True, "quality_tier": entry_quality.tier.label, "reason": "All gates passed \u2014 entry executed"}
             else:
                 self.logger.warning(f"ORDER FAILED: {result.get('error')}")
                 self.telegram.send_bot_status(
@@ -1767,7 +1784,7 @@ class TradingBot:
                     f"\u2514 Error: {result.get('error', 'Unknown')}\n"
                     f"\u2514 Score: {entry_signal.get('confidence', 0):.2f} | {trade_comment}"
                 )
-                return {"passed": False, "reason": f"BULL: Order failed ({result.get('error', 'Unknown')}) | BEAR: Order failed"}
+                return {"passed": False, "quality_tier": entry_quality.tier.label, "reason": f"BULL: Order failed ({result.get('error', 'Unknown')}) | BEAR: Order failed"}
 
         except Exception as e:
             self.logger.error(f"Error processing signals: {e}")

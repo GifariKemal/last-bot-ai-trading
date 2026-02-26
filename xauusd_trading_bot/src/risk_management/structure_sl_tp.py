@@ -19,15 +19,17 @@ SESSION_SPREADS = {
 }
 
 # Minimum RR targets per regime
+# M15 Fast Mode: all set to 1.5 — consistent target, faster TP hit (~1h hold)
+# Previously 1.5–3.0 which (combined with wide SL) forced TP 40–48pt = 2h+ hold
 REGIME_MIN_RR = {
     MarketRegime.STRONG_TREND_UP: 1.5,
     MarketRegime.STRONG_TREND_DOWN: 1.5,
-    MarketRegime.WEAK_TREND_UP: 1.8,
-    MarketRegime.WEAK_TREND_DOWN: 1.8,
-    MarketRegime.RANGE_TIGHT: 2.5,
-    MarketRegime.RANGE_WIDE: 2.0,
-    MarketRegime.VOLATILE_BREAKOUT: 2.0,
-    MarketRegime.REVERSAL: 3.0,
+    MarketRegime.WEAK_TREND_UP: 1.5,    # was 1.8
+    MarketRegime.WEAK_TREND_DOWN: 1.5,  # was 1.8
+    MarketRegime.RANGE_TIGHT: 1.5,      # was 2.5
+    MarketRegime.RANGE_WIDE: 1.5,       # was 2.0
+    MarketRegime.VOLATILE_BREAKOUT: 1.5, # was 2.0
+    MarketRegime.REVERSAL: 1.5,         # was 3.0
 }
 
 

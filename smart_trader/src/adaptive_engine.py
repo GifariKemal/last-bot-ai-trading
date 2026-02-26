@@ -12,23 +12,23 @@ from loguru import logger
 
 _DEFAULT_BASELINES = {
     "trending": {
-        "sl_atr_mult": 2.0, "tp_atr_mult": 4.0, "min_confidence": 0.68,
-        "be_trigger_mult": 0.7, "lock_trigger_mult": 1.5, "trail_keep_pct": 0.50,
-        "stale_tighten_min": 90, "scratch_exit_min": 180,
+        "sl_atr_mult": 2.0, "tp_atr_mult": 3.0, "min_confidence": 0.70,
+        "be_trigger_mult": 0.4, "lock_trigger_mult": 1.2, "trail_keep_pct": 0.55,
+        "stale_tighten_min": 75, "scratch_exit_min": 180,
     },
     "ranging": {
-        "sl_atr_mult": 1.5, "tp_atr_mult": 3.0, "min_confidence": 0.75,
-        "be_trigger_mult": 0.5, "lock_trigger_mult": 1.2, "trail_keep_pct": 0.55,
-        "stale_tighten_min": 60, "scratch_exit_min": 120,
+        "sl_atr_mult": 1.8, "tp_atr_mult": 2.5, "min_confidence": 0.70,
+        "be_trigger_mult": 0.4, "lock_trigger_mult": 1.0, "trail_keep_pct": 0.50,
+        "stale_tighten_min": 60, "scratch_exit_min": 150,
     },
     "breakout": {
-        "sl_atr_mult": 2.5, "tp_atr_mult": 5.0, "min_confidence": 0.72,
-        "be_trigger_mult": 0.8, "lock_trigger_mult": 1.5, "trail_keep_pct": 0.45,
-        "stale_tighten_min": 120, "scratch_exit_min": 240,
+        "sl_atr_mult": 2.5, "tp_atr_mult": 4.0, "min_confidence": 0.70,
+        "be_trigger_mult": 0.5, "lock_trigger_mult": 1.3, "trail_keep_pct": 0.50,
+        "stale_tighten_min": 90, "scratch_exit_min": 180,
     },
     "reversal": {
-        "sl_atr_mult": 1.5, "tp_atr_mult": 3.5, "min_confidence": 0.78,
-        "be_trigger_mult": 0.5, "lock_trigger_mult": 1.0, "trail_keep_pct": 0.55,
+        "sl_atr_mult": 1.8, "tp_atr_mult": 2.5, "min_confidence": 0.70,
+        "be_trigger_mult": 0.4, "lock_trigger_mult": 1.0, "trail_keep_pct": 0.50,
         "stale_tighten_min": 60, "scratch_exit_min": 120,
     },
 }
@@ -36,8 +36,8 @@ _DEFAULT_BASELINES = {
 # ── Hard Bounds (cannot be exceeded regardless of adaptation) ─────────────────
 
 _DEFAULT_BOUNDS = {
-    "sl_atr_mult":       (1.0, 3.5),
-    "tp_atr_mult":       (2.0, 7.0),
+    "sl_atr_mult":       (1.0, 3.0),
+    "tp_atr_mult":       (1.5, 5.0),
     "min_confidence":    (0.60, 0.90),
     "be_trigger_mult":   (0.3, 1.0),
     "lock_trigger_mult": (0.8, 2.5),
@@ -66,8 +66,15 @@ class AdaptiveEngine:
 
         # Per-regime adjustment multipliers (1.0 = baseline)
         self.adjustments: dict[str, dict[str, float]] = {}
-        # Per-session/zone weights
-        self.session_weights: dict[str, float] = {}
+        # Per-session/zone weights — defaults from 6-month backtest (2025-09 to 2026-02)
+        # NEW_YORK = best (+192pt), LONDON = ok, OVERLAP = worst (-318pt), LATE_NY = bad
+        self.session_weights: dict[str, float] = {
+            "NEW_YORK": 1.15,
+            "LONDON": 1.05,
+            "ASIAN": 0.95,
+            "OVERLAP": 0.80,
+            "LATE_NY": 0.85,
+        }
         self.zone_weights: dict[str, float] = {}
         self.last_update: str = ""
 
@@ -127,16 +134,50 @@ class AdaptiveEngine:
         rsi: float,
         pd_zone: str,
         has_choch: bool,
+        signals: list[str] | None = None,
     ) -> tuple[float, bool]:
         """
         Compute algorithmic pre-score before calling Claude.
         Returns (score, should_call_claude).
-        Threshold: score < 0.35 → skip Claude call.
+        Threshold: score < 0.35 -> skip Claude call.
+
+        Signal quality adjustments (from 6-month backtest 2025-09 to 2026-02):
+          OB present  : +0.08 bonus  (best signal, +9.2pt edge per trade)
+          M15 present : +0.06 bonus  (+4.0pt edge)
+          FVG-only    : -0.06 penalty (negative edge when sole zone signal)
+          CHoCH-only  : -0.04 penalty (negative edge alone, ok as support)
+          LONG bias   : +0.04 bonus  (LONG +173pt vs SHORT -709pt)
         """
         score = 0.0
+        sigs = signals or []
+        sigs_upper = [s.upper() for s in sigs]
 
         # Signal count: 0-0.30 (3 signals = 0.15, 5+ = 0.30)
         score += min(signal_count * 0.05, 0.30)
+
+        # ── Signal quality bonus/penalty (backtest-driven) ──────────────
+        has_ob = "OB" in sigs
+        has_m15 = "M15" in sigs
+        has_fvg = "FVG" in sigs
+        has_bos = "BOS" in sigs
+        has_liqsweep = any("LIQSWEEP" in s for s in sigs_upper)
+        zone_signals = [s for s in sigs if s in ("BOS", "OB", "FVG", "CHoCH", "LiqSweep", "Breaker")
+                        or "LIQSWEEP" in s.upper()]
+
+        # OB = king signal (+9.2pt edge) → bonus
+        if has_ob:
+            score += 0.08
+        # M15 confirmation (+4.0pt edge) → bonus
+        if has_m15:
+            score += 0.06
+
+        # FVG as sole zone signal = negative edge → penalty
+        if has_fvg and len(zone_signals) == 1 and zone_signals[0] == "FVG":
+            score -= 0.06
+
+        # LONG direction bias (backtest: LONG profitable, SHORT losing)
+        if direction == "LONG":
+            score += 0.04
 
         # Session weight: 0-0.15
         sw = self.get_session_weight(session)
@@ -152,12 +193,12 @@ class AdaptiveEngine:
             score += 0.08
         # else: counter-trend without CHoCH = 0
 
-        # RSI sweet spot: 0-0.10
-        if direction == "LONG" and 30 <= rsi <= 60:
+        # RSI sweet spot: 0-0.10 (widened based on backtest: 55-85 is optimal)
+        if direction == "LONG" and 25 <= rsi <= 80:
             score += 0.10
-        elif direction == "SHORT" and 40 <= rsi <= 70:
+        elif direction == "SHORT" and 20 <= rsi <= 75:
             score += 0.10
-        elif 25 <= rsi <= 75:
+        elif 20 <= rsi <= 80:
             score += 0.05
 
         # P/D alignment: 0-0.10

@@ -14,14 +14,17 @@ _PROMPT_TEMPLATE = """\
 XAUUSD TRADE VALIDATION — all data already provided, NO tool calls needed.
 Respond with ONLY the JSON decision object, nothing else.
 
-YOU ARE AN ELITE INSTITUTIONAL TRADER. Think like:
-- Soros: high conviction when BOS+OB+FVG align (reflexive confluence); CHoCH = loop broken
-- PTJ/Kovner: defense first — capital preservation paramount; SL at invalidation, never widen
-- Druckenmiller: asymmetric bets — it's not win rate, it's profit when right vs loss when wrong
-- Simons: systematic — trust the signals, no emotional override, process > outcome
-- Lipschutz: patience — skip weak setups, A+ confluence only; sitting out IS a position
-- Dennis: trade with structure — BOS = trend continuation, CHoCH = potential reversal
-- Kotegawa: discipline — if the level fails, the trade is wrong, zero exceptions
+YOU ARE THE PRIMARY DECISION MAKER. No hard gates filter before you — YOU decide.
+
+MASTER RULES — Think like Soros, Kovner, PTJ, Simons, Druckenmiller, Dennis, Lipschutz, Kotegawa:
+1. CONVICTION (Soros): BOS+OB+FVG align = reflexive confluence = high confidence
+2. DEFENSE (PTJ/Kovner): Capital preservation first; SL at invalidation; never widen stops
+3. ASYMMETRY (Druckenmiller): It's not win rate — it's profit when right vs loss when wrong
+4. SYSTEMATIC (Simons): Trust the signals; no emotional override; process > outcome
+5. PATIENCE (Lipschutz): Skip weak setups; A+ confluence ONLY; sitting out IS a position
+6. TREND (Dennis): BOS = trend continuation; CHoCH = potential reversal
+7. DISCIPLINE (Kotegawa): If the level fails, the trade is wrong — zero exceptions
+8. LET WINNERS RUN (Dennis/Lipschutz): Don't exit winners early; trail and let structure decide
 
 MARKET SNAPSHOT:
 Price: {price} | Spread: {spread}pt | ATR: {atr:.1f}pt
@@ -29,25 +32,45 @@ Session: {session} | H1: {h1_structure} | EMA(50): {ema_trend}
 RSI(14): {rsi:.1f} | P/D: {pd_zone}
 Regime: {regime} ({regime_confidence:.0%} confidence){choch_note}
 
+SIGNAL ANALYSIS:
+Signals ({signal_count}): {signals}
+Tier-1 (high-impact): {tier1_count} | Tier-2 (support): {tier2_count}
+Structure (BOS/CHoCH): {structure_status}
+Key signals: OB={has_ob} | M15={has_m15} | FVG={has_fvg}
+Nearby zones: {nearby_zones}
+
+ALIGNMENT CHECK (evaluate contextually — these are NOT hard blocks):
+EMA trend: {ema_trend} vs Direction: {direction} -> {ema_status}
+P/D zone: {pd_zone} vs Direction: {direction} -> {pd_status}
+Algo pre-score: {pre_score:.2f} (reference only)
+
 PROPOSED TRADE:
 Direction: {direction}
 Zone: {zone_type} @ {zone_level}  (distance: {distance:.1f}pt)
 M15 Confirm: {m15_conf}
 OTE: {ote}
-Signals ({signal_count}): {signals}
 SL: {sl:.2f} | TP: {tp:.2f} | RR: {rr:.1f}
 Lot: {lot:.2f} | Est.margin: ~$50
 
 RECENT CONTEXT:
 {context}
 
-RULES (mandatory):
-- RR ~1.7 is NORMAL for this system (3x ATR SL, 5x ATR TP). Do NOT reject for low RR.
-- RSI 60-80 is normal in XAUUSD trends. Only reject RSI above 85 or below 15.
-- You are the PRIMARY decision maker. Evaluate signal quality and confluence freely.
-- REJECT only if: SL/TP values are clearly wrong (e.g. SL above entry for LONG).
-- CONFIDENCE SCALE: 0.85+ = A+ Soros-level confluence (multiple aligned signals)
-  0.70-0.84 = solid setup worth trading. Below 0.70 = skip (Lipschutz patience rule).
+BACKTEST INSIGHTS (6-month data, use as guidance):
+- OB = strongest signal (+9.2pt edge). Setups with OB significantly outperform.
+- M15 confirmation adds +4.0pt edge. BOS is neutral but confirms structure.
+- FVG alone = negative edge. CHoCH alone = negative. They need supporting signals.
+- LONG has been more profitable than SHORT historically.
+- NEW_YORK is the best session. OVERLAP is the worst.
+- RSI sweet spot: 55-85 for XAUUSD (trends run hot).
+
+DECISION RULES:
+- You are the SOLE decision maker. Evaluate ALL factors together contextually.
+- RR ~1.5 is NORMAL for this system (tighter TP for realistic H1 targets). Do NOT reject for RR alone.
+- NO_TRADE is the RIGHT call for weak setups. Patience > action (Lipschutz).
+- CONFIDENCE SCALE: 0.85+ = A+ Soros-level confluence. 0.70-0.84 = solid. <0.70 = skip.
+- Counter-trend with CHoCH in reversal/ranging regime CAN be valid — evaluate context.
+- LONG in PREMIUM or SHORT in DISCOUNT = yellow flag but NOT auto-reject if other signals strong.
+- RSI 60-80 in XAUUSD trends = normal. Only extreme concern above 88 or below 12.
 
 Respond ONLY with valid JSON (no markdown):
 {{"decision":"LONG or SHORT or NO_TRADE","confidence":0.0-1.0,"reason":"<20 words","sl":{sl:.2f},"tp":{tp:.2f}}}
@@ -55,7 +78,7 @@ Respond ONLY with valid JSON (no markdown):
 
 
 def build_prompt(setup: dict) -> str:
-    """Build compact validation prompt from pre-analyzed setup dict."""
+    """Build enriched validation prompt — Claude is the primary decision maker."""
     ote_str = "yes ({:.1f}-{:.1f})".format(*setup["ote"]) if setup.get("ote") else "no"
     signals = ", ".join(setup.get("signals", [])) or "none"
     context = setup.get("context", "").strip() or "No prior cycles."
@@ -65,11 +88,38 @@ def build_prompt(setup: dict) -> str:
         lines = context.split("\n")
         context = "\n".join(lines[-4:])  # Keep last 4 lines
 
-    # Regime fields (optional — absent for legacy callers)
+    # Regime fields
     regime = setup.get("regime", "UNKNOWN")
     regime_confidence = setup.get("regime_confidence", 0.0)
     has_choch = setup.get("has_choch", False)
-    choch_note = "\n** CHoCH DETECTED — potential reversal, counter-trend valid **" if has_choch else ""
+    choch_note = "\n** CHoCH DETECTED — potential reversal, counter-trend may be valid **" if has_choch else ""
+
+    # Signal quality breakdown
+    has_structure = setup.get("has_structure", False)
+    structure_status = "YES" if has_structure else "NONE (no BOS/CHoCH — weak setup)"
+
+    # EMA alignment status
+    ema_aligned = setup.get("ema_aligned", False)
+    ema_counter = setup.get("ema_counter", False)
+    if ema_aligned:
+        ema_status = "ALIGNED (trend-following)"
+    elif ema_counter:
+        ema_status = "COUNTER-TREND (higher risk" + (", but CHoCH detected)" if has_choch else ")")
+    else:
+        ema_status = "NEUTRAL"
+
+    # P/D alignment status
+    pd_aligned = setup.get("pd_aligned", False)
+    pd_opposing = setup.get("pd_opposing", False)
+    if pd_aligned:
+        pd_status = "ALIGNED (buying discount / selling premium)"
+    elif pd_opposing:
+        pd_status = "OPPOSING (buying premium / selling discount — caution)"
+    else:
+        pd_status = "EQUILIBRIUM (neutral)"
+
+    # Nearby zones list
+    nearby_zones = ", ".join(setup.get("nearby_zones", [])) or "none"
 
     return _PROMPT_TEMPLATE.format(
         price       = setup["price"],
@@ -84,13 +134,23 @@ def build_prompt(setup: dict) -> str:
         regime_confidence = regime_confidence,
         choch_note  = choch_note,
         direction   = setup["direction"],
+        signal_count= setup.get("signal_count", 0),
+        signals     = signals,
+        tier1_count = setup.get("tier1_count", 0),
+        tier2_count = setup.get("tier2_count", 0),
+        structure_status = structure_status,
+        has_ob      = "YES" if setup.get("has_ob") else "no",
+        has_m15     = "YES" if setup.get("has_m15") else "no",
+        has_fvg     = "YES" if setup.get("has_fvg") else "no",
+        nearby_zones = nearby_zones,
+        ema_status  = ema_status,
+        pd_status   = pd_status,
+        pre_score   = setup.get("pre_score", 0),
         zone_type   = setup.get("zone_type", "ZONE"),
         zone_level  = setup.get("zone_level", setup["price"]),
         distance    = setup.get("distance_pts", 0),
         m15_conf    = setup.get("m15_conf") or "none",
         ote         = ote_str,
-        signal_count= setup.get("signal_count", 0),
-        signals     = signals,
         sl          = setup["sl"],
         tp          = setup["tp"],
         rr          = setup.get("rr", 0),

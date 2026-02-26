@@ -495,14 +495,31 @@ def colorize_line(line: str) -> str:
         line = re.sub(r'(?i)(cooldown)', _c(BYELLOW, 'cooldown'), line)
     if "Spike window" in line:
         line = re.sub(r'(Spike window)', _c(BYELLOW, 'Spike window'), line)
+    if "pre_score=" in line:
+        line = re.sub(r'(pre_score=[\d.]+)', lambda m: _c(CYAN, m.group(1)), line)
     if "Pre-score" in line:
         line = re.sub(r'(Pre-score [\d.]+)', lambda m: _c(CYAN, m.group(1)), line)
     if "Daily range exhausted" in line:
         line = re.sub(r'(Daily range exhausted)', _c(BYELLOW + BOLD, 'Daily range exhausted'), line)
-    if "PREMIUM zone" in line:
-        line = re.sub(r'(PREMIUM zone)', _c(BRED, 'PREMIUM zone'), line)
-    if "DISCOUNT zone" in line:
-        line = re.sub(r'(DISCOUNT zone)', _c(BGREEN, 'DISCOUNT zone'), line)
+    if "PREMIUM zone" in line or "PREMIUM" in line:
+        line = re.sub(r'(PREMIUM)', _c(BRED, 'PREMIUM'), line)
+    if "DISCOUNT zone" in line or "DISCOUNT" in line:
+        line = re.sub(r'(DISCOUNT)', _c(BGREEN, 'DISCOUNT'), line)
+    # Enriched data tags (hybrid architecture)
+    if "struct=" in line:
+        line = re.sub(r'(struct=Y)', _c(BGREEN, 'struct=Y'), line)
+        line = re.sub(r'(struct=N)', _c(BYELLOW, 'struct=N'), line)
+    if "EMA=aligned" in line:
+        line = re.sub(r'(EMA=aligned)', _c(BGREEN, 'EMA=aligned'), line)
+    if "EMA=counter" in line:
+        line = re.sub(r'(EMA=counter)', _c(BRED, 'EMA=counter'), line)
+    if "P/D=aligned" in line:
+        line = re.sub(r'(P/D=aligned)', _c(BGREEN, 'P/D=aligned'), line)
+    if "P/D=opposing" in line:
+        line = re.sub(r'(P/D=opposing)', _c(BRED, 'P/D=opposing'), line)
+    if " T1=" in line:
+        line = re.sub(r'(T1=\d+)', lambda m: _c(BCYAN, m.group(1)), line)
+        line = re.sub(r'(T2=\d+)', lambda m: _c(CYAN, m.group(1)), line)
 
     # ── Position stages ──────────────────────────────────────────────────
     line = re.sub(r'UNDERWATER', _c(BRED + BOLD, 'UNDERWATER'), line)

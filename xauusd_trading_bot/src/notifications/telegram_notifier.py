@@ -311,6 +311,17 @@ class TelegramNotifier:
             # [ VERDICT ]
             L.append("")
             L.append("[ VERDICT ]")
+            # Extract tier label from gate_result (populated when signal fires)
+            tier_label = (gate_result or {}).get("quality_tier", "")
+            tier_badge = ""
+            if tier_label:
+                if "HIGH" in tier_label or "A:" in tier_label:
+                    tier_badge = " \u2b50[A:HIGH]"
+                elif "MED" in tier_label or "B:" in tier_label:
+                    tier_badge = " [B:MED]"
+                elif "LOW" in tier_label or "C:" in tier_label:
+                    tier_badge = " [C:LOW]"
+
             if has_signal:
                 smc_combo = " + ".join(active) if active else "Tech"
                 tags = []
@@ -322,7 +333,7 @@ class TelegramNotifier:
                 if mtf_aligned:
                     tags.append("MTF \u2713")
                 tag_s = " | ".join(tags)
-                L.append(f"\u2705 <b>{best_dir}</b> \u2014 {smc_combo}")
+                L.append(f"\u2705 <b>{best_dir}</b> \u2014 {smc_combo}{tier_badge}")
                 if tag_s:
                     L.append(f"\u2192 {tag_s} \u2192 CHECKING ENTRY GATES...")
                 else:
@@ -375,7 +386,8 @@ class TelegramNotifier:
                 passed = gate_result.get("passed", False)
                 if passed:
                     L.append("")
-                    L.append("[ ENTRY GATES ] \u2705")
+                    tier_note = f" {tier_badge.strip()}" if tier_badge else ""
+                    L.append(f"[ ENTRY GATES ] \u2705{tier_note}")
                     reason = gate_result.get("reason", "")
                     if reason:
                         L.append(f"\u203a {reason}")
@@ -438,23 +450,21 @@ class TelegramNotifier:
 
     def _shorten_gate_reason(self, raw: str) -> str:
         """Shorten verbose gate reasons into compact labels."""
+        import re
         r = raw.strip()
         if "structure support" in r:
             return "\u2717 No BOS/CHoCH"
         if "SMC signal" in r:
             # "Only 0 SMC signal(s), need 1+ (position #1)" → "✗ SMC 0/1"
-            import re
             m = re.search(r"(\d+) SMC.*need (\d+)", r)
             if m:
                 return f"\u2717 SMC {m.group(1)}/{m.group(2)}"
-            return f"\u2717 SMC insufficient"
+            return "\u2717 SMC insufficient"
         if "RSI extreme overbought" in r:
-            import re
             m = re.search(r"([\d.]+)", r)
             rsi_val = m.group(1) if m else "?"
             return f"\u2717 RSI overbought ({rsi_val})"
         if "RSI extreme oversold" in r:
-            import re
             m = re.search(r"([\d.]+)", r)
             rsi_val = m.group(1) if m else "?"
             return f"\u2717 RSI oversold ({rsi_val})"
@@ -468,6 +478,38 @@ class TelegramNotifier:
             return "\u2717 No FVG/OB"
         if "confluence too low" in r:
             return "\u2717 Confluence too low"
+        if "SL cooldown" in r:
+            # "SL cooldown BUY (2c)" → "✗ SL cooldown BUY (2c)"
+            m = re.search(r"SL cooldown (\w+) \((\d+)c\)", r)
+            if m:
+                return f"\u23f8 SL cooldown {m.group(1)} ({m.group(2)}c)"
+            return "\u23f8 SL cooldown"
+        if "Direction limit" in r:
+            # "Direction limit (BUY)" → "✗ Dir limit BUY"
+            m = re.search(r"Direction limit \((\w+)\)", r)
+            if m:
+                return f"\u2717 Dir limit {m.group(1)}"
+            return "\u2717 Dir limit"
+        if "Spacing too close" in r or "Too close to" in r:
+            # "Spacing too close #12345 (3.2pts)" → "✗ Spacing 3.2pts"
+            m = re.search(r"\(([\d.]+)pts\)", r)
+            if m:
+                return f"\u2717 Spacing ({m.group(1)}pts)"
+            return "\u2717 Spacing too close"
+        if "Spacing block" in r:
+            return "\u2717 Spacing block"
+        if "Micro acct" in r or "micro account" in r.lower():
+            return "\u2717 Micro acct limit"
+        if "Max position" in r:
+            return "\u2717 Max positions"
+        if "Order failed" in r:
+            # "Order failed (TRADE_RETCODE_ERROR)" → "✗ Order failed"
+            m = re.search(r"Order failed \((.{0,20})\)", r)
+            if m:
+                return f"\u274c Order failed: {m.group(1)}"
+            return "\u274c Order failed"
+        if "No conditions met" in r:
+            return "\u2717 No signal"
         return f"\u2717 {r[:40]}"
 
     def send_gate_rejection(self, reason: str) -> bool:

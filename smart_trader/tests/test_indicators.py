@@ -426,7 +426,8 @@ class TestCountSignals:
         assert choch_count == 1
 
     def test_count_signals_all_signals_combined(self):
-        """All signals active together should yield correct count and all types present."""
+        """All signals active together should yield correct count and all types present.
+        gate_count excludes Tier-3 (Discount) — it's contextual bias only."""
         count, signals = ind.count_signals(
             direction="LONG",
             zones_hit=["BOS_BULL", "FVG_BULL", "CHOCH_BULL"],
@@ -442,7 +443,9 @@ class TestCountSignals:
         assert "M15" in signals
         assert "OTE" in signals
         assert "Discount" in signals
-        assert count == len(signals)
+        # gate_count = 5 (BOS, FVG, CHoCH, M15, OTE) — Discount is Tier-3, not counted
+        assert count == len(signals) - 1
+        assert count == 5
 
     def test_count_signals_empty_inputs_returns_zero(self):
         count, signals = ind.count_signals(
@@ -457,18 +460,21 @@ class TestCountSignals:
         assert count == 0
         assert signals == []
 
-    def test_count_signals_count_matches_list_length(self):
-        """Returned count must always equal len(signal_list)."""
+    def test_count_signals_gate_excludes_tier3(self):
+        """gate_count excludes Tier-3 (Premium/Discount) — they're contextual bias only."""
         count, signals = ind.count_signals(
             direction="SHORT",
-            zones_hit=["BOS_BEAR", "LIQ_SWEEP"],
+            zones_hit=["BOS_BEAR", "BEAR_LIQSWEEP"],
             m15_conf="BEAR_ENGULFING",
             ote=None,
             price=2900.0,
             pd_zone="PREMIUM",
             h1_structure="",
         )
-        assert count == len(signals)
+        # signals = [BOS, LiqSweep, M15, Premium] — Premium is Tier-3
+        assert "Premium" in signals
+        assert count == len(signals) - 1  # gate_count excludes Premium
+        assert count == 3  # BOS + LiqSweep + M15
 
     def test_count_signals_fvg_detected(self):
         count, signals = ind.count_signals(
@@ -485,7 +491,7 @@ class TestCountSignals:
     def test_count_signals_liqsweep_detected(self):
         count, signals = ind.count_signals(
             direction="SHORT",
-            zones_hit=["LIQ_SWEEP_HIGH"],
+            zones_hit=["BEAR_LIQSWEEP"],
             m15_conf=None,
             ote=None,
             price=2900.0,
@@ -505,6 +511,38 @@ class TestCountSignals:
             h1_structure="",
         )
         assert "Breaker" in signals
+
+    def test_count_signals_tier3_alone_does_not_inflate_gate(self):
+        """Regression: FVG+OB+Premium should be gate_count=2, NOT 3.
+        This was the root cause of weak trade #1499819829 passing the gate."""
+        count, signals = ind.count_signals(
+            direction="SHORT",
+            zones_hit=["BEAR_FVG", "BEAR_OB"],
+            m15_conf=None,
+            ote=None,
+            price=2900.0,
+            pd_zone="PREMIUM",
+            h1_structure="",
+        )
+        assert "FVG" in signals
+        assert "OB" in signals
+        assert "Premium" in signals
+        assert count == 2  # Only FVG + OB count for the gate
+        assert len(signals) == 3  # Premium still in list for Claude context
+
+    def test_count_signals_no_tier3_count_unchanged(self):
+        """Without Tier-3, gate_count == len(signals)."""
+        count, signals = ind.count_signals(
+            direction="LONG",
+            zones_hit=["BOS_BULL", "FVG_BULL", "BULL_OB"],
+            m15_conf=None,
+            ote=None,
+            price=2900.0,
+            pd_zone="EQUILIBRIUM",
+            h1_structure="",
+        )
+        assert count == len(signals)
+        assert count == 3  # BOS + FVG + OB
 
     def test_count_signals_m15_conf_bear_adds_m15(self):
         """Bear M15 confirmation also adds 'M15' signal for SHORT direction."""

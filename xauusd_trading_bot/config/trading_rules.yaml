@@ -165,10 +165,14 @@ confluence_weights:
   ema_alignment: 0.10
   rsi_confirmation: 0.08
   macd_confirmation: 0.07
-  bollinger_confirmation: 0.05
+  bollinger_confirmation: 0.05  # ⚠️ DEAD CONFIG — adaptive_scorer._score_technical_factors() never scores Bollinger Bands.
+                                 # _tech_base_max only includes EMA(0.10)+RSI(0.08)+MACD(0.07)=0.25; BB not in denominator.
+                                 # Would need explicit scoring block in adaptive_scorer.py to activate.
 
   # Bonus Factors
-  session_bonus: 0.10  # Bonus during optimal session
+  session_bonus: 0.10  # ⚠️ DEAD CONFIG — adaptive_scorer._score_bonus_factors() never applies this.
+                        # DecisionEngine (the only class that used session_weight) is never called from trading_bot.py.
+                        # Would need wiring into _score_bonus_factors() or DecisionEngine activation to use.
   mtf_alignment_bonus: 0.15  # Bonus for perfect MTF alignment
   ltf_confirmation_bonus: 0.10  # Bonus for M5 momentum/structure confirmation
   pd_zone_bonus: 0.00    # ICT P/D zone: disabled - M15 swing range too noisy; needs H4/Daily dealing range
@@ -179,8 +183,8 @@ confluence_weights:
   # bos_solo_penalty     : extra score deduction for naked BOS (Optuna range: 0.0–0.20)
   # bos_ranging_fill_floor: stricter SMC fill floor for BOS in ranging/volatile regimes
   #                          (Optuna range: 0.30–0.55; can't go below global MIN_SMC_FILL=0.30)
-  bos_solo_penalty: 0.139      # V5 Optuna-optimized (was 0.05 — 14% deduction for naked BOS)
-  bos_ranging_fill_floor: 0.461 # V5 Optuna-optimized (was 0.38 — stricter floor in ranging/volatile)
+  bos_solo_penalty: 0.05       # Paket B (was 0.139 V5) — lighter penalty for naked BOS
+  bos_ranging_fill_floor: 0.38  # Paket B (was 0.461 V5) — back to pre-V5 floor
 
 # Signal Validation
 

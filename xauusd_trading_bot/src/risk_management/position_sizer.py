@@ -50,11 +50,11 @@ class PositionSizer:
                 lot_size = self._calculate_fixed_size(
                     market_analysis, volatility_level
                 )
-            elif self.method == "percent_balance":
+            elif self.method == "percent_balance":  # ⚠️ UNREACHABLE — config/risk_config.yaml always method: "fixed"
                 lot_size = self._calculate_percent_size(
                     account_info, sl_distance_pips
                 )
-            elif self.method == "kelly":
+            elif self.method == "kelly":  # ⚠️ UNREACHABLE — config/risk_config.yaml always method: "fixed"
                 lot_size = self._calculate_kelly_size(
                     account_info, sl_distance_pips
                 )
@@ -123,6 +123,9 @@ class PositionSizer:
     ) -> float:
         """
         Calculate position size based on % of balance to risk.
+        ⚠️ DEAD — unreachable because method is always "fixed" in risk_config.yaml.
+        Formula is correct for XAUUSD (contract_size=100), but never executed.
+        To activate: change risk_config.yaml → position_sizing.method: "percent_balance".
 
         Args:
             account_info: Account information
@@ -160,6 +163,10 @@ class PositionSizer:
     ) -> float:
         """
         Calculate position size using Kelly Criterion.
+        ⚠️ DEAD — unreachable AND incomplete. method is always "fixed" in risk_config.yaml.
+        Implementation is a stub: just applies kelly_fraction to percent_size instead of
+        using real Kelly formula (requires historical win_rate + avg_win/avg_loss tracking).
+        Do NOT activate without replacing the stub with real Kelly math.
 
         Kelly % = (Win% * Avg Win / Avg Loss) - (1 - Win%)
 
@@ -190,6 +197,9 @@ class PositionSizer:
     ) -> Dict:
         """
         Check if new position violates limits.
+        ⚠️ DEAD — never called from trading_bot.py. Position limit checks are done
+        inline in trading_bot._process_new_signals() via self.open_positions count.
+        Kept as utility; safe to call if needed.
 
         Args:
             new_lot_size: Proposed lot size
@@ -245,6 +255,9 @@ class PositionSizer:
     ) -> float:
         """
         Calculate margin required for position.
+        ⚠️ DEAD — never called from trading_bot.py. Margin is validated by MT5
+        directly when order_executor.execute_order() is called; MT5 rejects if
+        insufficient margin. Kept as utility; formula is correct for XAUUSD.
 
         Args:
             lot_size: Position size in lots
@@ -268,6 +281,8 @@ class PositionSizer:
     ) -> Dict:
         """
         Check if sufficient margin is available.
+        ⚠️ DEAD — never called from trading_bot.py. Same as calculate_margin_required:
+        MT5 enforces margin directly. Kept as utility.
 
         Args:
             account_info: Account information

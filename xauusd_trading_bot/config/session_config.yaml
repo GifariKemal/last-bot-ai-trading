@@ -12,32 +12,32 @@ sessions:
     name: "Asian Session"
     start_utc: "00:00"       # Japan has no DST — always 00:00
     end_utc: "09:00"         # Winter fallback (was 08:00 — wrong)
-    weight: 0.947  # V5 Optuna-optimized (was 0.75 — Asian sessions undervalued)
-    min_confluence_adjustment: 0.05  # Require slightly higher confluence
+    weight: 0.947  # V5 Optuna-optimized (was 0.75). ⚠️ DEAD for entry scoring — DecisionEngine (that applied weight*confidence) is never called from trading_bot.py. Used only for is_trading_allowed() blackout checks.
+    min_confluence_adjustment: 0.05  # ⚠️ DEAD — stored in session_detector.py:34 but never read by entry gates in entry_signals.py or adaptive_scorer.py.
     description: "Tokyo session - Lower volatility, still tradeable"
 
   london:
     name: "London Session"
     start_utc: "08:00"       # Winter fallback (summer: 07:00)
     end_utc: "17:00"         # Winter fallback (was 16:00 — wrong; summer: 16:00)
-    weight: 1.16  # V3 Optuna-optimized (was 1.1)
-    min_confluence_adjustment: 0.0
+    weight: 1.16  # V3 Optuna-optimized (was 1.1). ⚠️ DEAD for entry scoring — see asian.weight note above.
+    min_confluence_adjustment: 0.0   # ⚠️ DEAD — see asian.min_confluence_adjustment note above.
     description: "London session - Good volatility and liquidity"
 
   new_york:
     name: "New York Session"
     start_utc: "13:00"       # Winter fallback (summer: 12:00)
     end_utc: "22:00"         # Winter fallback (summer: 21:00)
-    weight: 1.16  # V3 Optuna-optimized (was 1.1)
-    min_confluence_adjustment: 0.0
+    weight: 1.16  # V3 Optuna-optimized (was 1.1). ⚠️ DEAD for entry scoring — see asian.weight note above.
+    min_confluence_adjustment: 0.0   # ⚠️ DEAD — see asian.min_confluence_adjustment note above.
     description: "New York session - High volatility and liquidity"
 
   overlap:
     name: "London-NY Overlap"
     start_utc: "13:00"       # Winter fallback (summer: 12:00)
     end_utc: "17:00"         # Winter fallback (was 16:00 — wrong; summer: 16:00)
-    weight: 1.442  # V5 Optuna-optimized (was 1.18)
-    min_confluence_adjustment: 0.05   # Require higher confluence (data: PF 0.53, worst session)
+    weight: 1.442  # V5 Optuna-optimized (was 1.18). ⚠️ DEAD for entry scoring — see asian.weight note above.
+    min_confluence_adjustment: 0.05  # ⚠️ DEAD — see asian.min_confluence_adjustment note above. (Data: PF 0.53, worst session)
     description: "Overlap session - Best liquidity and movement for XAUUSD"
 
 # Session preferences
@@ -49,7 +49,7 @@ preferences:
   session_adjustments:
     asian:
       reduce_position_size: true
-      size_multiplier: 0.7
+      size_multiplier: 0.7  # ⚠️ DEAD — session_manager.py computes this but trading_bot.py never calls get_position_size_multiplier(). All trades use fixed 0.01 lot.
       avoid_aggressive_entries: true
 
     overlap:

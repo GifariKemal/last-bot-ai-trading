@@ -1,6 +1,18 @@
 """
 Decision Engine
 Central decision-making logic that evaluates market conditions and signals.
+
+⚠️  DEAD CODE MODULE — This entire class is NEVER instantiated or called in trading_bot.py.
+The class is exported in src/bot/__init__.py but trading_bot.py handles all decisions inline
+via _process_new_signals(), _manage_positions(), and drawdown_monitor.check_trading_allowed().
+
+Key functionality that WOULD have worked but doesn't:
+  - evaluate_entry_signal(): applies session_weight * confidence (line 69) — currently dead
+  - session_bonus / min_confluence_adjustment per session — never applied because this class isn't called
+  - prioritize_actions(): priority ordering of exits > modifications > entries — never used
+
+To activate: instantiate DecisionEngine in TradingBot.__init__() and call evaluate_entry_signal()
+from _process_new_signals() instead of the inline gate checks.
 """
 
 from typing import Dict, Optional, List

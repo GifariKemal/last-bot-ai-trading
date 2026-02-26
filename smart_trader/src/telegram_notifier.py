@@ -294,6 +294,15 @@ class SmartTraderNotifier:
         atr: float,
         claude_latency_ms: float = 0,
         claude_tokens: int = 0,
+        # Enriched fields (hybrid architecture)
+        regime: str = "",
+        pd_zone: str = "",
+        pre_score: float = 0.0,
+        tier1_count: int = 0,
+        tier2_count: int = 0,
+        has_structure: bool = False,
+        ema_aligned: bool = False,
+        pd_aligned: bool = False,
     ) -> bool:
         try:
             dir_em  = _dir_emoji(direction)
@@ -305,6 +314,11 @@ class SmartTraderNotifier:
             signals_str = " + ".join(signals) if signals else "—"
             review_str = f"› Review: {claude_latency_ms / 1000:.1f}s | ~{claude_tokens} tokens" \
                          if claude_latency_ms > 0 else ""
+
+            # Signal tier breakdown
+            struct_tag = "BOS/CHoCH" if has_structure else "no structure"
+            ema_tag = "aligned" if ema_aligned else "counter" if not ema_aligned and ema_trend != "NEUTRAL" else "neutral"
+            pd_tag = "aligned" if pd_aligned else pd_zone
 
             L = [
                 f"{dir_em} <b>ENTRY — {direction}</b> @ {price:.2f}",
@@ -318,6 +332,7 @@ class SmartTraderNotifier:
                 "[ CLAUDE AI ]",
                 f"› Confidence: {_conf_bar(confidence)}",
                 f"› Sinyal ({signal_count}): {signals_str}",
+                f"› Tier-1: {tier1_count} | Tier-2: {tier2_count} | {struct_tag}",
                 f"› Zone: {zone_type} ({zone_dist:.1f}pt away)",
                 f'› Reason: "<i>{claude_reason}</i>"',
             ]
@@ -326,8 +341,9 @@ class SmartTraderNotifier:
             L += [
                 "",
                 "[ KONTEKS ]",
-                f"› Session: {session} {flag} | EMA: {ema_trend} {ema_em}",
-                f"› RSI: {rsi:.0f} | ATR: {atr:.1f}",
+                f"› Session: {session} {flag} | EMA: {ema_trend} {ema_em} ({ema_tag})",
+                f"› RSI: {rsi:.0f} | ATR: {atr:.1f} | P/D: {pd_tag}",
+                f"› Regime: {regime} | Pre-score: {pre_score:.2f}",
                 "",
                 f"⏰ {_ts()} | #{ticket}",
             ]
@@ -684,6 +700,38 @@ class SmartTraderNotifier:
         except Exception as e:
             logger.warning(f"Telegram hourly_report error: {e}")
             return False
+
+    # ── CHART IMAGE ────────────────────────────────────────────────────────────
+
+    def send_chart(self, image_path: str, caption: str = "") -> bool:
+        """Send a chart image (PNG) to Telegram via sendPhoto."""
+        if not self.enabled or not self.token:
+            return False
+
+        def _do():
+            try:
+                with open(image_path, "rb") as photo:
+                    data = {
+                        "chat_id":    self.chat_id,
+                        "parse_mode": "HTML",
+                    }
+                    if caption:
+                        data["caption"] = caption[:1024]  # Telegram caption limit
+                    resp = requests.post(
+                        f"{self.base_url}/sendPhoto",
+                        data=data,
+                        files={"photo": ("chart.png", photo, "image/png")},
+                        timeout=30,
+                    )
+                    if not resp.ok:
+                        logger.warning(f"Telegram sendPhoto failed: {resp.status_code} {resp.text[:150]}")
+                    else:
+                        logger.info(f"Chart sent to Telegram: {image_path}")
+            except Exception as e:
+                logger.warning(f"Telegram sendPhoto error: {e}")
+
+        threading.Thread(target=_do, daemon=True).start()
+        return True
 
     # ── ERROR / WARNING ───────────────────────────────────────────────────────
 

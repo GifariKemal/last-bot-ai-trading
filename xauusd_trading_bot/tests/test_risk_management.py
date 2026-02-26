@@ -77,8 +77,8 @@ def test_sl_tp_calculator():
         print(f"    Risk:Reward: 1:{result['rr_ratio']:.2f}")
 
         # Verify minimum RR
-        assert result["rr_ratio"] >= 2.0, "RR ratio should be at least 1:2"
-        print("    [OK] RR ratio >= 1:2")
+        assert result["rr_ratio"] >= 1.5, "RR ratio should be at least 1:1.5 (M15 Fast Mode)"
+        print("    [OK] RR ratio >= 1:1.5")
 
     # Test trailing stop
     print("\n\nTesting Trailing Stop Update:")

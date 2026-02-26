@@ -12,10 +12,28 @@ Architecture:
 Usage:
     # In settings.yaml: use_smc_v4: true
     # In backtest_engine.py / trading_bot.py: already branched by use_smc_v4 flag
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PANDAS ↔ POLARS BOUNDARY — INTENTIONAL DESIGN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The main bot pipeline uses Polars throughout for performance. Pandas
+exists HERE ONLY because the `smartmoneyconcepts` library requires it.
+
+Boundary contract:
+  IN  → Polars DataFrame  (from trading_bot / backtest_engine)
+  OUT → Python dict       (smc_signals, zero pandas leaks out)
+
+Conversion happens at ONE point only: _to_pandas(df) in calculate_all().
+All pandas DataFrames (swing, bos, fvg, ob, liq) live only inside this
+file and are never returned to callers. Public methods return plain dicts.
+
+DO NOT import pandas anywhere outside this file or mt5_connector/data_manager
+(those have their own MT5 ↔ Polars boundary).
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
-import pandas as pd
-import polars as pl
+import pandas as pd   # Required: smartmoneyconcepts library needs pandas DataFrames
+import polars as pl   # Main pipeline format — all public methods accept/return Polars
 from typing import Dict, Optional
 
 from ..core.constants import TrendDirection
@@ -266,6 +284,7 @@ class SMCIndicatorsV4:
                 nearest_ob = {
                     "top":      float(row["Top"]),
                     "bottom":   float(row["Bottom"]),
+                    # pd.notna: library returns pandas NaN for missing values — boundary use
                     "strength": float(row["Percentage"]) if pd.notna(row["Percentage"]) else None,
                     "volume":   float(row["OBVolume"])   if pd.notna(row["OBVolume"])   else None,
                 }
@@ -381,7 +400,13 @@ class SMCIndicatorsV4:
         return TrendDirection.NEUTRAL
 
     def _to_pandas(self, df: pl.DataFrame) -> pd.DataFrame:
-        """Convert Polars OHLCV DataFrame to pandas with lowercase columns."""
+        """
+        PANDAS BOUNDARY — single conversion point from Polars to pandas.
+
+        Called ONLY from calculate_all(). The result (and all downstream
+        pandas DataFrames from the library) stays inside this file.
+        Nothing pandas ever leaves this class.
+        """
         ohlc = df.to_pandas()
         # Normalize column names to lowercase
         ohlc.columns = [c.lower() for c in ohlc.columns]
@@ -460,6 +485,7 @@ class _V4StructureProxy:
 
         ss = swing.iloc[:end]
 
+        # pd.notna: filter library NaN rows before converting to plain dicts (boundary)
         highs = [
             {"time": i, "level": float(row["Level"]), "type": "SWING_HIGH"}
             for i, row in ss[ss["HighLow"] == 1.0].tail(n).iterrows()

@@ -1,6 +1,36 @@
 """
 Trailing Stop Manager
 Manages trailing stop logic for open positions.
+
+⚠️  DEAD CODE — NEVER INSTANTIATED. DO NOT USE FOR XAUUSD.
+
+This class is exported in src/risk_management/__init__.py but never instantiated
+in trading_bot.py. Trailing logic is implemented inline in trading_bot._manage_positions()
+(lines ~1101-1155) which supersedes this class entirely.
+
+WHY IT'S BROKEN FOR XAUUSD (not just dead):
+  The activation and trail distance use percent-of-price math:
+    profit_percent = (profit_pips / entry_price) * 100
+    trail_distance = current_price * (trail_distance_percent / 100)
+
+  At XAUUSD price $2650 with config activation_percent=5.0, trail_distance_percent=8.0:
+    - Activation requires: $2650 × 5% = $132.5 price move = 132 pips profit
+    - On $100 account (0.01 lot, $1/pip): needs $132 profit just to start trailing
+    - That is 132% of the account — essentially unreachable
+    - Trail distance would be: $2650 × 8% = $212 (5× the typical SL distance)
+
+  This bug was already documented in tests/test_phase6.py:
+    "update_trailing_stop removed — percent-based logic was mathematically broken
+     for XAUUSD (10% activation = $500 profit required at $5000 gold price)"
+
+WHAT THE LIVE BOT USES INSTEAD (trading_bot.py:1107):
+  - Activation: after BE is set (~1.135R ≈ 42 pips profit) — reach-able on $100
+  - Progressive RR-based factors: 0.65 / 0.55 / 0.45 / 0.35 tightening as profit grows
+  - trail_distance = peak_profit_dist × trail_factor — scales correctly with ATR/volatility
+  - Min increment guard (0.5 pip) prevents MT5 spam
+
+TO REPLACE THIS CLASS: fix activation to use RR-based threshold (e.g. be_trigger_rr)
+and replace trail_distance_percent with a fraction of peak_profit (RR-based factor).
 """
 
 from typing import Dict, Optional
@@ -23,14 +53,14 @@ class TrailingStopManager:
 
         self.trailing_config = config.get("trailing_stop", {})
         self.enabled = self.trailing_config.get("enabled", True)
-        self.activation_percent = self.trailing_config.get("activation_percent", 10.0)
-        self.trail_distance_percent = self.trailing_config.get("trail_distance_percent", 5.0)
+        self.activation_percent = self.trailing_config.get("activation_percent", 10.0)   # ⚠️ BROKEN: % of entry_price, not % of SL distance
+        self.trail_distance_percent = self.trailing_config.get("trail_distance_percent", 5.0)  # ⚠️ BROKEN: % of price → $212 trail on XAUUSD
         self.use_atr_trail = self.trailing_config.get("use_atr_trail", False)
         self.atr_trail_multiplier = self.trailing_config.get("atr_trail_multiplier", 1.5)
 
         # Breakeven config
         self.breakeven_config = config.get("breakeven", {})
-        self.move_to_be_percent = self.breakeven_config.get("move_to_be_percent", 15.0)
+        self.move_to_be_percent = self.breakeven_config.get("move_to_be_percent", 15.0)  # ⚠️ BROKEN: same percent-of-price issue
         self.be_buffer_pips = self.breakeven_config.get("be_buffer_pips", 2.0)
 
         # Track peak profit for each position
@@ -73,7 +103,7 @@ class TrailingStopManager:
                 profit_pips = entry_price - current_price
                 unrealized_pnl = profit_pips * position.get("volume", 0.01) * 100
 
-            profit_percent = (abs(profit_pips) / entry_price) * 100
+            profit_percent = (abs(profit_pips) / entry_price) * 100  # ⚠️ BROKEN: on XAUUSD $2650, 5% = $132.5 move needed
 
             # Update peak profit
             if position_id not in self.peak_profits:
@@ -132,9 +162,12 @@ class TrailingStopManager:
         direction: str,
         peak_profit: float,
     ) -> float:
-        """Calculate trailing SL based on percentage from peak."""
+        """Calculate trailing SL based on percentage from peak.
+        ⚠️ BROKEN: trail_distance = current_price × 8% = $212 on XAUUSD $2650.
+        Live bot uses: trail_distance = peak_profit_dist × RR_factor (0.35–0.65).
+        """
 
-        trail_distance = current_price * (self.trail_distance_percent / 100)
+        trail_distance = current_price * (self.trail_distance_percent / 100)  # ⚠️ BROKEN — wrong base
 
         if direction == "BUY":
             # Trail below current price

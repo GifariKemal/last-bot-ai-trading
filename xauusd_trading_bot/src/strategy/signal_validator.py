@@ -274,8 +274,11 @@ class SignalValidator:
         balance = account_info.get("balance", 0)
         margin_free = account_info.get("margin_free", balance)  # Default to balance
 
-        # Need at least $100 free margin for 0.01 lot XAUUSD
-        min_free_margin = 100
+        # Need at least $60 free margin for 0.01 lot XAUUSD
+        # Actual margin = price($5175) × 0.01 lot × 100 contract / 100 leverage = ~$51.75
+        # $60 = margin requirement + $8 safety buffer
+        # Was $100 — caused valid trades to be blocked when balance dropped below $100
+        min_free_margin = 60
 
         return margin_free >= min_free_margin
 

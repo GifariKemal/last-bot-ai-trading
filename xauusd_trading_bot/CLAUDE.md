@@ -1,8 +1,8 @@
 # CLAUDE.md — Developer Instructions for Claude Code
 
-> Project: **XAUUSD SMC Trading Bot v4.0.0**
+> Project: **XAUUSD SMC Trading Bot v4.1.0**
 > Owner: Gifari K Suryo — PT Surya Inovasi Prioritas (SURIOTA)
-> Last updated: 2026-02-22
+> Last updated: 2026-02-26
 
 This file provides Claude Code with project-specific instructions that **override default behavior**.
 Read this before touching any code in this project.
@@ -109,21 +109,26 @@ main.py
 | File | What to Change |
 |------|---------------|
 | `config/settings.yaml` | `use_smc_v4`, `use_adaptive_scorer`, `regime_weights`, `telegram` |
-| `config/risk_config.yaml` | `fixed_lot`, `atr_multiplier`, `exit_stages` (`be_trigger_rr=0.77`, `trail_activation_rr=2.72`) |
-| `config/session_config.yaml` | Session weights (Overlap=1.18, London/NY=1.16, Asian=0.75), `blackout_hours`, `friday_close_time_utc` |
+| `config/risk_config.yaml` | `fixed_lot`, `atr_multiplier`, `exit_stages` (`be_trigger_rr=1.135`, `trail_activation_rr=2.71`) |
+| `config/session_config.yaml` | Session weights (Overlap=1.442, London/NY=1.16, Asian=0.947), `blackout_hours`, `friday_close_time_utc` |
 | `config/trading_rules.yaml` | `require_structure_support`, `require_fvg_or_ob: false`, `require_mtf_alignment: false` |
 
 ---
 
-## 📐 Current Parameter State (v4.0.0)
+## 📐 Current Parameter State (v4.1.0 — 2026-02-26)
+
+> V5 BOS Quality Filter + V5 Regime Optimization
+> Optimization: Optuna 50 trials, 6-month 1-window WF, balance=$10k
+> Results (vs V4): PF 1.26→6.13 (W1), PF 0.95→15.49 (W2), DD 3.8%→0.1% (W2)
+> V4 was LOSING in recent period (-0.50% return) → V5 fixes to +2.50%
 
 ### Entry Gates (entry_signals.py)
-- `MIN_SMC_SIGNALS = 2` (regime-overridden: trending=1, ranging/breakout/volatile=3)
+- `MIN_SMC_SIGNALS = 2` (regime-overridden: trending=2, ranging/volatile=1, breakout/reversal=3)
 - `RSI_BOUNCE_LOOKBACK = 5` bars
 - `RSI_EXTREME_OVERBOUGHT = 75` (bounce protection)
 - `RSI_EXTREME_OVERSOLD = 25`
-- `RSI_HARD_OVERBOUGHT = 85` (hard block — was 90, fixed 2026-02-22)
-- `RSI_HARD_OVERSOLD = 15` (hard block — was 10, fixed 2026-02-22)
+- `RSI_HARD_OVERBOUGHT = 80` (hard block — was 85; backtest 2026-02-26: symmetric 20/80 → PF 1.86→2.14)
+- `RSI_HARD_OVERSOLD = 20` (hard block — was 15; blocks SHORT at extreme oversold zone where bounce likely)
 - `checks["confluence_met"] = True` (adaptive scorer `passing` is sole gatekeeper)
 
 ### Adaptive Scorer Guards (adaptive_scorer.py)
@@ -132,17 +137,22 @@ main.py
 - `OPPOSING_CHOCH_PENALTY = 0.15` — when the opposing direction has a CHoCH (reversal signal), subtract 0.15 from this direction's score. Passed via `opposing_smc` param from trading_bot.py.
 - Log line now shows `smc_fill=XX%` and `[SMC_CAPPED]` tag when floor triggers
 
-### Regime Weights (settings.yaml)
-- Trending: min_conf=0.550, min_smc=1, sl_mult=2.60  (floor 0.55 — was 0.437, allowed marginal entries)
-- Ranging: min_conf=0.550, min_smc=3, sl_mult=4.66
-- Breakout: min_conf=0.614, min_smc=3, sl_mult=4.26
-- Reversal: min_conf=0.589, min_smc=2, sl_mult=4.39
-- Volatile: min_conf=0.704, min_smc=3, sl_mult=4.57
+### Phase 2: BOS Quality Filter (trading_rules.yaml `confluence_weights`) — V5
+- `bos_solo_penalty: 0.139` — 14% score deduction for naked BOS (no CHoCH/FVG/OB/LiqSweep). V5 optimized (was 0.05). Applied in adaptive_scorer.py when is_bos_solo=True.
+- `bos_ranging_fill_floor: 0.461` — Stricter SMC fill floor for BOS in ranging/volatile regimes (was 0.38). Prevents BOS-only entries in choppy conditions.
 
-### Exit Stages (risk_config.yaml)
-- `be_trigger_rr: 0.77` — Move SL to BE at 77% of SL distance profit
-- `partial_close_rr: max(tp_rr * 0.65, 1.0)` — Dynamic partial (NOT 2.73R fixed)
-- `trail_activation_rr: 2.72` — Start trailing at 2.72R
+### Regime Weights (settings.yaml) — V5 Optuna-optimized
+- Trending: min_conf=0.742, min_smc=2, sl_mult=4.86  (stricter — quality over quantity)
+- Ranging: min_conf=0.626, min_smc=1, sl_mult=3.25   (min_smc=1 with strict confluence filter)
+- Breakout: min_conf=0.465, min_smc=3, sl_mult=2.55  (looser gate — catch breakouts early)
+- Reversal: min_conf=0.409, min_smc=3, sl_mult=2.37  (CHoCH-based, loose gate + tight SL)
+- Volatile: min_conf=0.720, min_smc=1, sl_mult=3.97  (min_smc=1 with strict confluence filter)
+
+### Exit Stages (risk_config.yaml) — V5 Optuna-optimized
+- `be_trigger_rr: 1.135` — Move SL to BE (was 0.77 — later BE → fewer whipsaw stops)
+- `partial_close_rr: 1.242` — Partial close at 1.24R (was 2.73 — earlier lock)
+- `trail_activation_rr: 2.71` — Start trailing at 2.71R (was 2.72 — essentially same)
+- `take_profit.atr_multiplier: 3.75` — TP multiplier (was 6.02 — tighter TP improves hit rate)
 
 ### Stale Trade Exit (trading_bot.py `_manage_positions`)
 Auto-close positions with dead momentum: open `min_hours` but peak profit never reached `min_peak_rr`, and currently in loss.

@@ -66,49 +66,52 @@ regime_detection:
   breakout_atr_pct: 80
   breakout_bb_pct: 75
 
-# Per-regime weight profiles (V5 Optuna-optimized, 6-month 2-window validation)
-# Improvement: PF 1.26→6.13 (window 1), PF 0.95→15.49 (window 2), DD 3.8%→0.1%
+# Per-regime weight profiles (Paket B — Moderate relaxation for more trade frequency)
+# V5 Optuna thresholds were optimized for max PF/min DD on $10k; too few trades on $100 demo.
+# Paket B: trending 0.742→0.60 (biggest bottleneck), ranging 0.626→0.58, volatile 0.720→0.62
+# min_smc_signals trending: 2→1 (allow 1 strong SMC signal if confluence is met)
+# V5 original: trending=0.742/2, ranging=0.626/1, breakout=0.465/3, reversal=0.409/3, volatile=0.720/1
 regime_weights:
   trending:
     smc_weight: 0.402
     tech_weight: 0.374
     market_weight: 0.124  # = 1 - smc - tech - mtf (0.1)
     mtf_weight: 0.10
-    min_confluence: 0.742  # Much stricter (was 0.550) — quality over quantity in trends
-    min_smc_signals: 2     # Require 2 SMC signals in trends (was 1)
-    atr_sl_mult: 4.86      # Wider SL in trends (was 2.60) — gives room for trend pullbacks
+    min_confluence: 0.60   # Paket B
+    min_smc_signals: 1     # Paket B
+    atr_sl_mult: 2.50      # M15 Fast (was 4.86 — too wide, causes 130min hold)
   ranging:
     smc_weight: 0.536
     tech_weight: 0.363
     market_weight: 0.05    # capped at floor
     mtf_weight: 0.10
-    min_confluence: 0.626  # Stricter (was 0.550)
-    min_smc_signals: 1     # Allow single signal in ranging (was 3) — confluence does the filtering
-    atr_sl_mult: 3.25      # Tighter SL in ranging (was 4.66)
+    min_confluence: 0.58   # Paket B
+    min_smc_signals: 1
+    atr_sl_mult: 2.00      # M15 Fast (was 3.25)
   breakout:
     smc_weight: 0.284
     tech_weight: 0.166
     market_weight: 0.449  # = 1 - smc - tech - mtf
     mtf_weight: 0.10
-    min_confluence: 0.465  # Looser (was 0.614) — catch breakouts early
-    min_smc_signals: 3     # Still require strong confluence in breakouts
-    atr_sl_mult: 2.55      # Tight SL for breakout momentum (was 4.26)
+    min_confluence: 0.465
+    min_smc_signals: 3
+    atr_sl_mult: 2.00      # M15 Fast (was 2.55)
   reversal:
     smc_weight: 0.545
     tech_weight: 0.400
     market_weight: 0.05    # capped at floor
     mtf_weight: 0.10
-    min_confluence: 0.409  # Looser (was 0.589) — CHoCH-based reversals need loose gate
-    min_smc_signals: 3     # High signal requirement for reversals (was 2)
-    atr_sl_mult: 2.37      # Tight SL for reversals (was 4.39)
+    min_confluence: 0.409
+    min_smc_signals: 3
+    atr_sl_mult: 2.00      # M15 Fast (was 2.37)
   volatile:
     smc_weight: 0.502
     tech_weight: 0.106
     market_weight: 0.292  # = 1 - smc - tech - mtf
     mtf_weight: 0.10
-    min_confluence: 0.720  # Strict (was 0.704)
-    min_smc_signals: 1     # Allow single signal in volatile (was 3) — confluence filters
-    atr_sl_mult: 3.97      # Slightly tighter than current (was 4.57)
+    min_confluence: 0.62   # Paket B
+    min_smc_signals: 1
+    atr_sl_mult: 2.50      # M15 Fast (was 3.97)
 
 emergency:
   enabled: true

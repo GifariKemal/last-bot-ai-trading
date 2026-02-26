@@ -84,6 +84,10 @@ class SessionManager:
     ) -> Dict:
         """
         Apply session-based adjustments to strategy parameters.
+        ⚠️ DEAD — never called from trading_bot.py. Would apply session.weight,
+        min_confluence_adjustment, and size_multiplier to entry params.
+        All three of those configs are also dead (see session_config.yaml comments).
+        To activate: call from trading_bot._process_new_signals() before threshold check.
 
         Args:
             base_params: Base strategy parameters
@@ -141,6 +145,9 @@ class SessionManager:
     ) -> float:
         """
         Get adjusted confluence threshold for current session.
+        ⚠️ DEAD — never called from trading_bot.py or adaptive_scorer.py.
+        Backtest (compare_session_weighting.py) proved threshold adjustment alone
+        reduced PF 1.86→1.73. Keep dead.
 
         Args:
             base_threshold: Base confluence threshold
@@ -158,6 +165,9 @@ class SessionManager:
     def get_position_size_multiplier(self, current_time: datetime = None) -> float:
         """
         Get position size multiplier for current session.
+        ⚠️ DEAD — never called from trading_bot.py. Bot always uses fixed 0.01 lot
+        (Exness $100 balance, 1:100 leverage, margin ~$51/trade — can't reduce further).
+        session_config.yaml size_multiplier=0.7 for Asian is also dead for same reason.
 
         Args:
             current_time: Optional datetime
@@ -178,6 +188,8 @@ class SessionManager:
     def should_close_positions_early(self, current_time: datetime = None) -> Dict:
         """
         Check if positions should be closed early (e.g., Friday close).
+        ⚠️ DEAD — never called from trading_bot.py. Superseded by should_exit_ny_close()
+        (which IS called) and the friday_close_time_utc blackout in is_trading_allowed().
 
         Args:
             current_time: Optional datetime
@@ -281,6 +293,7 @@ class SessionManager:
     def get_session_statistics(self) -> Dict:
         """
         Get statistics about session usage.
+        ⚠️ DEAD — never called from trading_bot.py. Informational only.
 
         Returns:
             Statistics dictionary
@@ -299,6 +312,7 @@ class SessionManager:
     def get_optimal_entry_times(self) -> Dict:
         """
         Get information about optimal entry times.
+        ⚠️ DEAD — never called from trading_bot.py. Informational only.
 
         Returns:
             Dictionary with timing recommendations
@@ -328,6 +342,8 @@ class SessionManager:
     ) -> Dict:
         """
         Validate if trade timing is appropriate.
+        ⚠️ DEAD — never called from trading_bot.py. Would block non-preferred session
+        entries with confidence < 0.75. Timing is handled by is_trading_allowed() instead.
 
         Args:
             signal: Trading signal
@@ -390,6 +406,7 @@ class SessionManager:
     def get_manager_summary(self, current_time: datetime = None) -> str:
         """
         Get human-readable manager summary.
+        ⚠️ DEAD — never called from trading_bot.py. Informational/debug only.
 
         Args:
             current_time: Optional datetime

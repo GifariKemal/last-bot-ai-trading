@@ -13,8 +13,8 @@ bot:
   version: 1.0.0
 confluence_weights:
   bollinger_confirmation: 0.05
-  bos_ranging_fill_floor: 0.46067204393357386
-  bos_solo_penalty: 0.13864967419915958
+  bos_ranging_fill_floor: 0.36250360276615495
+  bos_solo_penalty: 0.13663000066862427
   ema_alignment: 0.1
   fvg: 0.2
   liquidity_sweep: 0.2
@@ -65,9 +65,9 @@ execution:
   fill_policy: IOC
   max_slippage_points: 50
 exit_stages:
-  be_trigger_rr: 1.135475858163491
-  partial_close_rr: 1.2419022444068055
-  trail_activation_rr: 2.7124814340039496
+  be_trigger_rr: 0.9774809717523103
+  partial_close_rr: 2.6505110471703865
+  trail_activation_rr: 1.6960581556908543
 logging:
   console_output: true
   file_output: true
@@ -195,45 +195,45 @@ regime_detection:
   strong_trend_score: 0.5
 regime_weights:
   breakout:
-    atr_sl_mult: 2.5500247395957185
-    market_weight: 0.4493844619064292
-    min_confluence: 0.4649039249880956
+    atr_sl_mult: 1.6420823107231337
+    market_weight: 0.33271408045058803
+    min_confluence: 0.6740996329755968
     min_smc_signals: 3
     mtf_weight: 0.1
-    smc_weight: 0.28427353210029854
-    tech_weight: 0.16634200599327226
+    smc_weight: 0.3458094812171943
+    tech_weight: 0.22147643833221764
   ranging:
-    atr_sl_mult: 3.254692564158872
-    market_weight: 0.05
-    min_confluence: 0.6258501677295665
-    min_smc_signals: 1
-    mtf_weight: 0.1
-    smc_weight: 0.5358063033448169
-    tech_weight: 0.3628605646842058
-  reversal:
-    atr_sl_mult: 2.371468468940088
-    market_weight: 0.05
-    min_confluence: 0.4092563923353702
-    min_smc_signals: 3
-    mtf_weight: 0.1
-    smc_weight: 0.5450163529094746
-    tech_weight: 0.39995893469868316
-  trending:
-    atr_sl_mult: 4.86187234787254
-    market_weight: 0.12478712974942405
-    min_confluence: 0.7418801785831663
+    atr_sl_mult: 4.813992196154014
+    market_weight: 0.21837396728253997
+    min_confluence: 0.5178437889996745
     min_smc_signals: 2
     mtf_weight: 0.1
-    smc_weight: 0.40159087020905604
-    tech_weight: 0.3736220000415199
-  volatile:
-    atr_sl_mult: 3.973892036382511
-    market_weight: 0.29193646478891255
-    min_confluence: 0.7201289365424672
+    smc_weight: 0.3870640970615773
+    tech_weight: 0.29456193565588273
+  reversal:
+    atr_sl_mult: 2.032854655038812
+    market_weight: 0.3453610939290932
+    min_confluence: 0.45659668523390623
+    min_smc_signals: 2
+    mtf_weight: 0.1
+    smc_weight: 0.36802499666011373
+    tech_weight: 0.18661390941079312
+  trending:
+    atr_sl_mult: 4.782363560731821
+    market_weight: 0.2836006343904691
+    min_confluence: 0.6957729476275426
     min_smc_signals: 1
     mtf_weight: 0.1
-    smc_weight: 0.5017040065515799
-    tech_weight: 0.1063595286595076
+    smc_weight: 0.2767771880967781
+    tech_weight: 0.3396221775127528
+  volatile:
+    atr_sl_mult: 3.0596692657189757
+    market_weight: 0.268114430803287
+    min_confluence: 0.5643987246800275
+    min_smc_signals: 3
+    mtf_weight: 0.1
+    smc_weight: 0.25781582361032757
+    tech_weight: 0.37406974558638534
 restrictions:
   avoid_weekends: true
   blackout_hours:
@@ -252,9 +252,9 @@ retry:
   max_attempts: 5
   max_delay: 60.0
 session:
-  asian_weight: 0.9469709809848942
-  london_ny_weight: 1.1044787544434214
-  overlap_weight: 1.4417988326791267
+  asian_weight: 0.5569187242276037
+  london_ny_weight: 1.0505218468956574
+  overlap_weight: 1.0737389218755549
 sessions:
   asian:
     description: Tokyo session - Lower volatility, still tradeable
@@ -309,7 +309,7 @@ smc_indicators:
     min_body_percent: 60
     require_strong_move: true
     strong_move_bars: 5
-    strong_move_percent: 0.7451002288708852
+    strong_move_percent: 0.7229830286348319
     weight: 0.25
   structure:
     bos_confirmation_bars: 2
@@ -326,7 +326,7 @@ stale_trade:
   min_hours: 3
   min_peak_rr: 0.3
 stop_loss:
-  atr_multiplier: 4.86187234787254
+  atr_multiplier: 4.782363560731821
   max_pips: 200
   method: atr_based
   min_pips: 10
@@ -367,7 +367,7 @@ symbol:
   name: XAUUSDm
   point: 0.001
 take_profit:
-  atr_multiplier: 3.746537720372186
+  atr_multiplier: 4.282853514766957
   max_pips: 500
   method: atr_based
   min_pips: 20

@@ -61,9 +61,14 @@ class SimPosition:
     session: str
     pre_score: float
     atr: float
+    # Entry context (for analysis)
+    rsi_val: float = 50.0
+    ema_trend: str = "NEUTRAL"
+    pd_zone: str = "EQUILIBRIUM"
     # Mutable state
     be_triggered: bool = False
     lock_triggered: bool = False
+    stale_tightened: bool = False
     peak_profit: float = 0.0
     # Exit
     exit_price: float = 0.0
@@ -140,7 +145,8 @@ class PositionManager:
         self._next_ticket = 1
 
     def open_position(self, bar, direction, sl, tp, lot, zone_type, signals,
-                      signal_count, regime, regime_cat, session, pre_score, atr) -> SimPosition:
+                      signal_count, regime, regime_cat, session, pre_score, atr,
+                      rsi_val=50.0, ema_trend="NEUTRAL", pd_zone="EQUILIBRIUM") -> SimPosition:
         half_spread = self.spread / 2
         if direction == "LONG":
             entry = bar["close"] + half_spread
@@ -163,6 +169,9 @@ class PositionManager:
             session=session,
             pre_score=pre_score,
             atr=atr,
+            rsi_val=rsi_val,
+            ema_trend=ema_trend,
+            pd_zone=pd_zone,
         )
         self._next_ticket += 1
         return pos
@@ -226,13 +235,14 @@ class PositionManager:
         age_min = (bar_time - pos.entry_time).total_seconds() / 60
 
         # -- Scratch exit (flat after scratch_min) ----------------------------
-        if age_min >= scratch_min and abs(profit_pts) < 3.0:
+        if age_min >= scratch_min and abs(profit_pts) < 10.0:
             if self._sl_below_entry(pos):
                 exit_px = bid if pos.direction == "LONG" else ask
                 return self._close(pos, exit_px, bar_time, "SCRATCH")
 
-        # -- Stale tighten (low progress after stale_min) ---------------------
-        if age_min >= stale_min and profit_pts < sl_dist * 0.5 and self._sl_below_entry(pos):
+        # -- Stale tighten (low progress after stale_min, fires ONCE) --------
+        if (age_min >= stale_min and not pos.stale_tightened
+                and profit_pts < sl_dist * 0.5 and self._sl_below_entry(pos)):
             half_dist = sl_dist * 0.5
             if pos.direction == "LONG":
                 new_sl = pos.entry_price - half_dist
@@ -242,6 +252,7 @@ class PositionManager:
                 new_sl = pos.entry_price + half_dist
                 if new_sl < pos.sl - 0.5:
                     pos.sl = round(new_sl, 2)
+            pos.stale_tightened = True
 
         # -- BE trigger -------------------------------------------------------
         be_trigger = sl_dist * be_mult
@@ -305,11 +316,28 @@ def evaluate_entry(
     m15_bar, price, h1_slice, h4_slice, m15_window,
     regime_result, adaptive: ae.AdaptiveEngine, cfg: dict,
     spread: float, pre_score_min: float,
+    gate_config: Optional[dict] = None,
 ) -> Optional[dict]:
     """
     Evaluate entry for both directions. Returns dict with entry info or None.
-    Replicates the gate pipeline from main.py lines 496-718.
+    Replicates the gate pipeline from main.py (100% sync, minus Claude).
+
+    gate_config keys (all optional, defaults match live system):
+      min_signals     (int)  : min Tier-1/2 signals for gate   [default: 3]
+      pd_zone_gate    (bool) : enforce P/D directional gate    [default: True]
+      require_structure (bool): must have BOS or CHoCH         [default: False]
+      require_choch   (bool) : must have CHoCH                 [default: False]
+      require_bos     (bool) : must have BOS                   [default: False]
+      tier1_min       (int)  : min Tier-1 signals              [default: 0]
     """
+    gc = gate_config or {}
+    min_sig = gc.get("min_signals", 1)              # synced: main.py hybrid (was 3)
+    pd_gate = gc.get("pd_zone_gate", False)          # synced: Claude decides (was True)
+    req_structure = gc.get("require_structure", False) # synced: Claude decides (was True)
+    req_choch = gc.get("require_choch", False)
+    req_bos = gc.get("require_bos", False)
+    tier1_min = gc.get("tier1_min", 0)
+
     t_cfg = cfg.get("trading", {})
     proximity = t_cfg.get("zone_proximity_pts", 5.0)
     sl_mult = t_cfg.get("sl_atr_mult", 2.0)
@@ -343,7 +371,7 @@ def evaluate_entry(
     if ind.daily_range_consumed(h1_slice, 1.20):
         return None
 
-    # Zone detection (no cache in backtest --only detector)
+    # Zone detection
     zones = zdet.detect_all_zones(h1_slice)
     if not zones:
         return None
@@ -352,7 +380,7 @@ def evaluate_entry(
     if not nearby:
         return None
 
-    # Collect zones by direction
+    # Collect nearby zones by direction (synced with main.py line 553-562)
     long_zones = []
     short_zones = []
     for z in nearby:
@@ -362,9 +390,6 @@ def evaluate_entry(
         elif d == "SHORT":
             short_zones.append(z)
 
-    all_long_types = [z["type"] for z in zones if scan.direction_for_zone(z) == "LONG"]
-    all_short_types = [z["type"] for z in zones if scan.direction_for_zone(z) == "SHORT"]
-
     best = None
 
     for direction, dir_zones in [("LONG", long_zones), ("SHORT", short_zones)]:
@@ -372,38 +397,49 @@ def evaluate_entry(
             continue
 
         primary = dir_zones[0]
-        all_zone_types = all_long_types if direction == "LONG" else all_short_types
-        h1_structure = primary.get("type", "")
+
+        # Use NEARBY zone types only — synced with main.py line 576 (Bug E fix)
+        nearby_zone_types = [z["type"] for z in dir_zones]
 
         m15_conf = ind.m15_confirmation(m15_window, direction) if len(m15_window) >= 6 else None
         ote = ind.ote_zone(h1_slice, direction)
 
         signal_count, signals = ind.count_signals(
-            direction, all_zone_types, m15_conf, ote, price, pd_zone, h1_structure
+            direction, nearby_zone_types, m15_conf, ote, price, pd_zone
         )
 
-        # RSI extreme gate
-        if direction == "LONG" and rsi_val > 85:
-            continue
-        if direction == "SHORT" and rsi_val < 15:
+        # ── Signal gate (configurable) ────────────────────────────────
+        if signal_count < min_sig:
             continue
 
-        # EMA counter-trend gate (with CHoCH override)
+        # Data capture (synced with main.py hybrid — no hard gates here)
         zone_has_choch = any("CHOCH" in s.upper() for s in signals)
         choch_detected = has_choch or zone_has_choch
 
-        if direction == "SHORT" and ema_trend == "BULLISH":
-            if not (adaptive and adaptive.should_allow_counter_trend(choch_detected, regime_cat)):
-                continue
-        if direction == "LONG" and ema_trend == "BEARISH":
-            if not (adaptive and adaptive.should_allow_counter_trend(choch_detected, regime_cat)):
+        # Signal composition gates (only when optimizer sets them explicitly)
+        if req_structure and not any(s in ("BOS", "CHoCH") for s in signals):
+            continue
+        if req_choch and "CHoCH" not in signals:
+            continue
+        if req_bos and "BOS" not in signals:
+            continue
+        if tier1_min > 0:
+            t1_count = sum(1 for s in signals if s in ("BOS", "OB", "LiqSweep"))
+            if t1_count < tier1_min:
                 continue
 
-        # Algo pre-score (replaces Claude)
+        # P/D zone gate (only when optimizer sets pd_gate=True)
+        if pd_gate and not choch_detected:
+            if direction == "LONG" and pd_zone == "PREMIUM":
+                continue
+            if direction == "SHORT" and pd_zone == "DISCOUNT":
+                continue
+
+        # Algo pre-score (logging + soft filter for backtest — replaces Claude)
         if adaptive:
             pre_score, should_call = adaptive.algo_pre_score(
                 signal_count, regime_cat, session["name"], direction,
-                ema_trend, rsi_val, pd_zone, choch_detected,
+                ema_trend, rsi_val, pd_zone, choch_detected, signals,
             )
             if pre_score < pre_score_min:
                 continue
@@ -446,6 +482,9 @@ def evaluate_entry(
                 "pre_score": pre_score,
                 "atr": atr_val,
                 "rr": rr,
+                "rsi_val": rsi_val,
+                "ema_trend": ema_trend,
+                "pd_zone": pd_zone,
             }
 
     return best
@@ -465,6 +504,7 @@ def run_simulation(
     balance: float = 100.0,
     pre_score_min: float = 0.35,
     verbose: bool = False,
+    gate_config: Optional[dict] = None,
 ) -> list[SimPosition]:
     """Run bar-by-bar M15 simulation. Returns list of closed trades."""
 
@@ -567,6 +607,7 @@ def run_simulation(
                 cfg=cfg,
                 spread=spread,
                 pre_score_min=pre_score_min,
+                gate_config=gate_config,
             )
 
             if entry is not None:
@@ -587,6 +628,9 @@ def run_simulation(
                         session=entry["session"],
                         pre_score=entry["pre_score"],
                         atr=entry["atr"],
+                        rsi_val=entry.get("rsi_val", 50.0),
+                        ema_trend=entry.get("ema_trend", "NEUTRAL"),
+                        pd_zone=entry.get("pd_zone", "EQUILIBRIUM"),
                     )
                     if verbose:
                         print(
@@ -808,7 +852,8 @@ def write_trades_csv(trades: list[SimPosition], path: str):
         "ticket", "direction", "entry_price", "entry_time", "exit_price", "exit_time",
         "sl_original", "tp", "pnl_pts", "close_type", "lot", "zone_type", "signal_count",
         "signals", "regime", "regime_cat", "session", "pre_score", "atr",
-        "be_triggered", "lock_triggered", "peak_profit",
+        "be_triggered", "lock_triggered", "stale_tightened", "peak_profit",
+        "rsi_val", "ema_trend", "pd_zone",
     ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -836,7 +881,11 @@ def write_trades_csv(trades: list[SimPosition], path: str):
                 "atr": round(t.atr, 1),
                 "be_triggered": t.be_triggered,
                 "lock_triggered": t.lock_triggered,
+                "stale_tightened": t.stale_tightened,
                 "peak_profit": round(t.peak_profit, 1),
+                "rsi_val": round(t.rsi_val, 1),
+                "ema_trend": t.ema_trend,
+                "pd_zone": t.pd_zone,
             }
             w.writerow(row)
     print(f"  Trades log saved: {path} ({len(trades)} trades)")

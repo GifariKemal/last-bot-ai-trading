@@ -29,9 +29,9 @@ stop_loss:
 
 take_profit:
   method: "atr_based"  # atr_based, fixed_pips, rr_ratio
-  atr_multiplier: 3.75  # V5 Optuna-optimized (was 6.02 — tighter TP improves hit rate and RR)
-  min_rr_ratio: 2.0  # Minimum Risk:Reward ratio
-  min_pips: 20
+  atr_multiplier: 2.50  # M15 Fast (was 3.75 V5 — shorter TP for faster M15 exits ~1h hold)
+  min_rr_ratio: 1.5  # M15 Fast (was 2.0 — matches REGIME_MIN_RR=1.5 floor)
+  min_pips: 15
   max_pips: 500
 
 trailing_stop:
@@ -76,7 +76,10 @@ structure_sl_tp:
 exit_stages:
   be_trigger_rr: 1.135       # Move SL to breakeven at this RR (V5: later BE → fewer whipsaw stops)
   partial_close_rr: 1.242    # Partial close at this RR (V5: earlier partial → lock profit sooner)
-  trail_activation_rr: 2.71  # Start trailing at this RR (essentially same as V3)
+  trail_activation_rr: 2.71  # ⚠️ DEAD CONFIG — never read by live bot or backtest engine.
+                               # Live bot trails from already_be (1.135R) with progressive ATR factors (0.65→0.55→0.45→0.35).
+                               # Backtest engine trails from stage>=2 (partial close ~1.242R) with fixed 50% factor.
+                               # Kept for reference; would need explicit wiring in trading_bot.py to activate.
 
 # Stale Trade Exit — close positions with dead momentum before full SL hit
 # If a trade has been open min_hours but peak profit never reached min_peak_rr,
