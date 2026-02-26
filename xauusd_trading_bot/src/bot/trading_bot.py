@@ -1885,8 +1885,8 @@ class TradingBot:
             ltf_t = brk.get("bonus", {}).get("details", {}).get("ltf_confirmation", 0)
             adj = brk.get("adjustments", {}).get("details", {})
             ct = adj.get("counter_trend", 0)
-            sc_c = BG if s >= thr else BR
-            tag = f"{BG}PASS{RS}" if s >= thr else f"{BR}FAIL{RS}"
+            sc_c = BG if round(s, 2) >= thr else BR
+            tag = f"{BG}PASS{RS}" if round(s, 2) >= thr else f"{BR}FAIL{RS}"
             parts = f"smc:{smc_t:.2f} + tech:{tech_t:.2f} + ltf:{ltf_t:.2f}"
             if ct != 0:
                 parts += f" {BR}ct:{ct:.2f}{RS}"

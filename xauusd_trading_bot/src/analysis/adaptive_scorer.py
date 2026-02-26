@@ -261,11 +261,14 @@ class AdaptiveConfluenceScorer:
                 f"{f' [BOS_SOLO pen={self._bos_solo_penalty:.2f} floor={effective_min_fill:.0%}]' if is_bos_solo else ''}"
             )
 
+            # Bug #55: round to 2dp before comparing so display matches logic.
+            # e.g. actual=0.5963 displays as "0.60" but 0.5963 >= 0.60 = False.
+            # With round: round(0.5963,2)=0.60 >= 0.60 = True (PASS, as expected).
             return {
                 "score": final_score,
                 "raw_score": raw_score,
                 "breakdown": breakdown,
-                "passing": final_score >= min_conf,
+                "passing": round(final_score, 2) >= min_conf,
                 "regime": regime.value,
                 "min_confluence": min_conf,
                 "smc_capped": smc_capped,
