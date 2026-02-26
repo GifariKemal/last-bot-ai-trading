@@ -479,7 +479,7 @@ class TelegramNotifier:
     def send_entry(self, direction: str, price: float, sl: float, tp: float,
                    lot: float, ticket: int, confidence: float,
                    smc_signals: str = "", session: str = "",
-                   regime: str = "") -> bool:
+                   regime: str = "", quality_tier: str = "") -> bool:
         try:
             dir_label = "LONG" if direction == "BUY" else "SHORT"
             dir_em = "\U0001f7e2" if dir_label == "LONG" else "\U0001f534"
@@ -487,8 +487,16 @@ class TelegramNotifier:
             tp_dist = abs(tp - price)
             rr = tp_dist / sl_dist if sl_dist > 0 else 0
 
+            # Quality tier badge: [A:HIGH] = gold star, [B:MED] = normal, [C:LOW] = skip
+            tier_badge = ""
+            if quality_tier:
+                if "HIGH" in quality_tier or "A:" in quality_tier:
+                    tier_badge = " \u2b50 A-GRADE"
+                elif "MED" in quality_tier or "B:" in quality_tier:
+                    tier_badge = " B-GRADE"
+
             L = [
-                f"{dir_em} <b>ENTRY \u2014 {dir_label}</b> @{price:.2f}",
+                f"{dir_em} <b>ENTRY \u2014 {dir_label}</b> @{price:.2f}{tier_badge}",
                 "",
                 "[ PARAMETER MISI ] \U0001f512",
                 f"\U0001f3af Entry: {price:.2f}",
@@ -502,6 +510,8 @@ class TelegramNotifier:
             if smc_signals:
                 L.append(f"\u203a Signals: {smc_signals}")
             detail_parts = [f"Score: {confidence * 10:.1f}/10"]
+            if quality_tier:
+                detail_parts.append(f"Tier: {quality_tier}")
             if session:
                 detail_parts.append(f"Session: {session}")
             if regime:

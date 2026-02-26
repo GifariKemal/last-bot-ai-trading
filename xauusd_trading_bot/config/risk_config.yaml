@@ -29,7 +29,7 @@ stop_loss:
 
 take_profit:
   method: "atr_based"  # atr_based, fixed_pips, rr_ratio
-  atr_multiplier: 6.02  # V3 Optuna-optimized (was 5.0)
+  atr_multiplier: 3.75  # V5 Optuna-optimized (was 6.02 — tighter TP improves hit rate and RR)
   min_rr_ratio: 2.0  # Minimum Risk:Reward ratio
   min_pips: 20
   max_pips: 500
@@ -72,11 +72,11 @@ structure_sl_tp:
   sl_buffer_atr_fraction: 0.2  # Buffer beyond swing point = 0.2 * ATR
   prefer_wider_sl: true         # Take wider of ATR vs structure SL (safety)
 
-# Configurable exit stage thresholds (V3 Optuna-optimized)
+# Configurable exit stage thresholds (V5 Optuna-optimized, 6-month 2-window validation)
 exit_stages:
-  be_trigger_rr: 0.77        # Move SL to breakeven at this RR (V3: earlier BE)
-  partial_close_rr: 2.73     # Partial close at this RR (V3: later partial)
-  trail_activation_rr: 2.72  # Start trailing at this RR
+  be_trigger_rr: 1.135       # Move SL to breakeven at this RR (V5: later BE → fewer whipsaw stops)
+  partial_close_rr: 1.242    # Partial close at this RR (V5: earlier partial → lock profit sooner)
+  trail_activation_rr: 2.71  # Start trailing at this RR (essentially same as V3)
 
 # Stale Trade Exit — close positions with dead momentum before full SL hit
 # If a trade has been open min_hours but peak profit never reached min_peak_rr,

@@ -80,22 +80,11 @@ class EntrySignalGenerator:
 
     def _get_min_smc_for_regime(self, regime: MarketRegime) -> int:
         """Get minimum SMC signals required based on regime.
-        Must match settings.yaml regime_weights.*.min_smc_signals."""
-        regime_min_smc = {
-            # trending: min_smc=1 (both strong and weak)
-            MarketRegime.STRONG_TREND_UP: 1,
-            MarketRegime.STRONG_TREND_DOWN: 1,
-            MarketRegime.WEAK_TREND_UP: 1,
-            MarketRegime.WEAK_TREND_DOWN: 1,
-            # ranging: min_smc=3
-            MarketRegime.RANGE_TIGHT: 3,
-            MarketRegime.RANGE_WIDE: 3,
-            # breakout: min_smc=3
-            MarketRegime.VOLATILE_BREAKOUT: 3,
-            # reversal: min_smc=2
-            MarketRegime.REVERSAL: 2,
-        }
-        return regime_min_smc.get(regime, self.MIN_SMC_SIGNALS)
+        Config-driven: reads settings.yaml regime_weights.*.min_smc_signals."""
+        regime_weights = self.config.get("regime_weights", {})
+        category = regime.category  # "trending", "ranging", "breakout", "reversal"
+        min_smc = regime_weights.get(category, {}).get("min_smc_signals", self.MIN_SMC_SIGNALS)
+        return int(min_smc)
 
     def generate_signal(
         self,

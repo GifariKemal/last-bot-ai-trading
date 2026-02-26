@@ -28,6 +28,7 @@ from ..analysis import (
 )
 from ..core.constants import MarketRegime
 from ..strategy.smc_strategy import SMCStrategy
+from ..strategy.entry_quality import EntryQualityEngine
 from ..risk_management import (
     SLTPCalculator,
     StructureSLTPCalculator,
@@ -92,9 +93,9 @@ class TradingBot:
         self.strategy = SMCStrategy(config)
 
         # Risk Management
-        self.sltp_calculator = SLTPCalculator(config.get("risk", {}))
-        self.position_sizer = PositionSizer(config.get("risk", {}))
-        self.drawdown_monitor = DrawdownMonitor(config.get("risk", {}))
+        self.sltp_calculator = SLTPCalculator(config)
+        self.position_sizer = PositionSizer(config)
+        self.drawdown_monitor = DrawdownMonitor(config)
 
         # V3: Regime-adaptive trading
         self.use_adaptive_scorer = config.get("use_adaptive_scorer", False)
@@ -102,23 +103,26 @@ class TradingBot:
         if self.use_adaptive_scorer:
             self.adaptive_scorer = AdaptiveConfluenceScorer(config)
             self.logger.info("V3 Adaptive Confluence Scorer ENABLED")
-        self.structure_sltp = StructureSLTPCalculator(config.get("risk", {}))
-        self.micro_account = MicroAccountManager(config.get("risk", {}))
+        # Dynamic Entry Gate (shared with BacktestEngine)
+        self.entry_quality_engine = EntryQualityEngine()
+
+        self.structure_sltp = StructureSLTPCalculator(config)
+        self.micro_account = MicroAccountManager(config)
 
         # Configurable exit stage thresholds (V3)
-        exit_cfg = config.get("risk", {}).get("exit_stages", {})
+        exit_cfg = config.get("exit_stages", {})
         self.be_trigger_rr = exit_cfg.get("be_trigger_rr", 1.0)
         self.partial_close_rr = exit_cfg.get("partial_close_rr", 1.5)
 
         # Stale trade exit config
-        stale_cfg = config.get("risk", {}).get("stale_trade", {})
+        stale_cfg = config.get("stale_trade", {})
         self.stale_trade_enabled = stale_cfg.get("enabled", False)
         self.stale_trade_min_hours = stale_cfg.get("min_hours", 3)
         self.stale_trade_min_peak_rr = stale_cfg.get("min_peak_rr", 0.3)
 
         # Position Management
         self.position_tracker = PositionTracker()
-        self.recovery_manager = RecoveryManager(config.get("risk", {}), self.position_tracker)
+        self.recovery_manager = RecoveryManager(config, self.position_tracker)
 
         # Session Management
         self.session_manager = SessionManager(config.get("session", {}))
@@ -165,7 +169,7 @@ class TradingBot:
         self._drawdown_paused_prev = False  # Telegram: only notify on transition
 
         # Position direction limits (prevents same-direction pile-ups)
-        _pos_lim = config.get("risk", {}).get("position_limits", {})
+        _pos_lim = config.get("position_limits", {})
         self._max_per_direction = _pos_lim.get("max_positions_per_direction", 2)
         self._min_spacing_pips = _pos_lim.get("min_position_distance", 20.0)
 
@@ -231,14 +235,14 @@ class TradingBot:
                     if isinstance(v, dict) and v.get("atr_sl_mult")
                 ]
                 _sl_range = (min(_sl_vals), max(_sl_vals)) if _sl_vals else None
-                _tp_atr = self.config.get("risk", {}).get("take_profit", {}).get("atr_multiplier")
+                _tp_atr = self.config.get("take_profit", {}).get("atr_multiplier")
                 self.telegram.send_bot_started(
                     balance=float(_ai.get("balance", 0)),
                     equity=float(_ai.get("equity", 0)),
                     scorer_on=self.use_adaptive_scorer,
                     be_rr=self.be_trigger_rr,
                     pc_rr=self.partial_close_rr,
-                    max_pos=self.config.get("risk", {}).get("max_open_positions", 3),
+                    max_pos=self.config.get("position_limits", {}).get("max_open_positions", 3),
                     is_smc_v4=self.config.get("use_smc_v4", False),
                     session_check=_session_check,
                     trade_analysis=trade_analysis,
@@ -1519,6 +1523,44 @@ class TradingBot:
 
             entry_signal = decision["entry_signal"]
 
+            # ── Dynamic Entry Gate: classify tier ────────────────────────────────
+            sig_dir_for_tier = str(entry_signal.get("direction", "BUY")).upper()
+            tier_key = "bullish" if "BUY" in sig_dir_for_tier else "bearish"
+            raw_smc = market_data["smc_analysis"].get(
+                "bullish" if "BUY" in sig_dir_for_tier else "bearish", {}
+            )
+            score_for_tier = market_data["confluence_scores"].get(
+                tier_key, {}
+            )
+            atr_for_tier = market_data["technical_indicators"].get("atr", 1.0)
+            # recent_bar_ranges: use last 3 bars from df_m15 if available
+            recent_ranges = []
+            df_m15 = market_data.get("df_m15")
+            if df_m15 is not None and len(df_m15) >= 3:
+                try:
+                    for j in range(-3, 0):
+                        h = float(df_m15["high"][j])
+                        l = float(df_m15["low"][j])
+                        recent_ranges.append(h - l)
+                except Exception:
+                    pass
+            entry_quality = self.entry_quality_engine.classify(
+                score_result=score_for_tier,
+                smc_signals=raw_smc,
+                technical={"atr": atr_for_tier, "recent_bar_ranges": recent_ranges},
+            )
+            entry_signal["quality_tier"] = entry_quality.tier.value
+            entry_signal["quality_score"] = entry_quality.score
+            entry_signal["has_zone"] = entry_quality.has_zone
+            entry_signal["quality_label"] = entry_quality.tier.label
+            self.logger.info(
+                f"Entry quality: {entry_quality.tier.label} | score={entry_quality.score:.3f} | "
+                f"zone={'YES' if entry_quality.has_zone else 'NO'} | "
+                f"disp={entry_quality.displacement_strength:.2f}x | "
+                f"reasons: {', '.join(entry_quality.reasons)}"
+            )
+            # ────────────────────────────────────────────────────────────────────
+
             # SL-hit directional cooldown check (wall-clock based — reliable Python datetime)
             sig_dir = str(entry_signal.get("direction", "")).upper()
             if sig_dir in self._sl_cooldown:
@@ -1629,7 +1671,7 @@ class TradingBot:
                 f"| Lot: {size_info['lot_size']}"
             )
 
-            # Build informative MT5 comment from SMC signals + confidence
+            # Build informative MT5 comment from SMC signals + confidence + tier
             smc = entry_signal.get("smc_context", {})
             smc_parts = []
             if smc.get("has_choch"):
@@ -1643,7 +1685,8 @@ class TradingBot:
             if smc.get("liquidity_swept"):
                 smc_parts.append("LS")
             smc_str = "|".join(smc_parts) if smc_parts else "~"
-            trade_comment = f"{smc_str}|{entry_signal['confidence']:.2f}"
+            quality_label_short = entry_signal.get("quality_tier", "MED")[0]  # H/M/L
+            trade_comment = f"{smc_str}|{entry_signal['confidence']:.2f}|T{quality_label_short}"
 
             result = self.order_executor.execute_entry(
                 entry_signal,
@@ -1698,6 +1741,7 @@ class TradingBot:
                     smc_signals=trade_comment,
                     session=session_info.get("name", "") if session_info else "",
                     regime=market_data.get("regime", ""),
+                    quality_tier=entry_signal.get("quality_label", "[B:MED]"),
                 )
 
                 # Log to trade CSV

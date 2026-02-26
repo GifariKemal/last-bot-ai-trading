@@ -28,6 +28,7 @@ from ..sessions import SessionManager
 from ..core.constants import TrendDirection, MarketRegime
 from ..core.data_manager import DataManager
 from ..strategy.exit_signals import STRUCTURE_EXIT_MIN_RR
+from ..strategy.entry_quality import EntryQualityEngine, EntryTier
 
 
 # Realistic spread model by session (UTC hours)
@@ -91,6 +92,9 @@ class BacktestEngine:
         else:
             self.confluence_scorer = ConfluenceScorer(config)
 
+        # Dynamic Entry Gate (shared with live bot)
+        self.entry_quality_engine = EntryQualityEngine()
+
         # Strategy
         self.strategy = SMCStrategy(config)
 
@@ -125,6 +129,9 @@ class BacktestEngine:
 
         # V3: Regime tracking for metrics
         self._regime_per_trade = []
+
+        # Dynamic Entry Gate: tier tracking per trade
+        self._tier_per_trade: List[str] = []  # "HIGH" / "MEDIUM" / "LOW" per trade
 
         # Structure exit config (None = uses STRUCTURE_EXIT_MIN_RR defaults, backward compatible)
         self._structure_exit_config = config.get("structure_exit", None)
@@ -246,6 +253,7 @@ class BacktestEngine:
         self.open_positions = []
         self.consecutive_losses = 0
         self._regime_per_trade = []
+        self._tier_per_trade = []
         self.df_m5 = df_m5
         self._pause_until_bar = 0
         # Reset RSI bounce history (Phase 1 sync)
@@ -274,11 +282,70 @@ class BacktestEngine:
                 self.trades, self._regime_per_trade
             )
 
+        # Dynamic Entry Gate: tier breakdown metrics
+        if self.trades:
+            metrics["tier_breakdown"] = self._compute_tier_breakdown(self.trades)
+
         return {
             "success": True,
             "metrics": metrics,
             "trades": self.trades,
         }
+
+    def _compute_tier_breakdown(self, trades: List[Dict]) -> Dict:
+        """Compute per-tier performance metrics for Dynamic Entry Gate analysis."""
+        from collections import defaultdict
+
+        buckets: Dict[str, List[Dict]] = defaultdict(list)
+        for t in trades:
+            tier = t.get("quality_tier", "MEDIUM")
+            buckets[tier].append(t)
+
+        result = {}
+        for tier_val in ["HIGH", "MEDIUM", "LOW"]:
+            group = buckets.get(tier_val, [])
+            if not group:
+                result[tier_val] = {"count": 0}
+                continue
+
+            profits = [t["profit"] for t in group]
+            wins = [p for p in profits if p > 0]
+            losses = [p for p in profits if p <= 0]
+            total_win = sum(wins)
+            total_loss = abs(sum(losses)) or 0.001
+            pf = total_win / total_loss if total_loss > 0 else float("inf")
+            wr = len(wins) / len(group) * 100
+
+            # Average RR (relative to SL distance)
+            rr_values = []
+            for t in group:
+                ep = t.get("entry_price", 0)
+                xp = t.get("exit_price", 0)
+                sl = t.get("sl", 0)
+                sl_dist = abs(ep - sl)
+                if sl_dist > 0:
+                    direction = t.get("direction", "BUY")
+                    if "BUY" in str(direction).upper():
+                        rr = (xp - ep) / sl_dist
+                    else:
+                        rr = (ep - xp) / sl_dist
+                    rr_values.append(rr)
+
+            avg_rr = sum(rr_values) / len(rr_values) if rr_values else 0.0
+            avg_score = sum(t.get("quality_score", 0) for t in group) / len(group)
+            zone_pct = sum(1 for t in group if t.get("has_zone")) / len(group) * 100
+
+            result[tier_val] = {
+                "count": len(group),
+                "win_rate": round(wr, 1),
+                "profit_factor": round(pf, 2),
+                "avg_rr": round(avg_rr, 3),
+                "avg_score": round(avg_score, 3),
+                "zone_pct": round(zone_pct, 1),
+                "total_profit": round(sum(profits), 2),
+            }
+
+        return result
 
     def _prepare_data(
         self, mt5, symbol, timeframe, start_date, end_date, use_cache
@@ -437,6 +504,27 @@ class BacktestEngine:
 
             confluence_scores = {"bullish": bullish_confluence, "bearish": bearish_confluence}
 
+            # ── Dynamic Entry Gate: classify quality tier ────────────────────────
+            # Build technical dict with recent bar ranges for displacement strength
+            recent_ranges = []
+            if i >= 3:
+                for j in range(max(0, i-2), i+1):
+                    h = df[j]["high"][0] if hasattr(df[j]["high"], "__getitem__") else float(df["high"][j])
+                    l = df[j]["low"][0] if hasattr(df[j]["low"], "__getitem__") else float(df["low"][j])
+                    recent_ranges.append(h - l)
+            tech_for_quality = {
+                "atr": technical_indicators.get("atr", 1.0),
+                "recent_bar_ranges": recent_ranges,
+            }
+            quality_tiers = self.entry_quality_engine.classify_both_directions(
+                bull_score=bullish_confluence,
+                bear_score=bearish_confluence,
+                bull_smc=bullish_smc,
+                bear_smc=bearish_smc,
+                technical=tech_for_quality,
+            )
+            # ────────────────────────────────────────────────────────────────────
+
             # Generate signal
             mock_account = {"balance": self.balance, "equity": self.balance, "margin_free": self.balance}
 
@@ -456,6 +544,14 @@ class BacktestEngine:
             if decision.get("has_entry"):
                 signal_count += 1
                 entry_signal = decision["entry_signal"]
+
+                # Attach quality tier to signal (based on direction)
+                sig_dir = entry_signal.get("direction", "BUY").upper()
+                tier_key = "bullish" if "BUY" in sig_dir else "bearish"
+                entry_quality = quality_tiers.get(tier_key)
+                entry_signal["quality_tier"] = entry_quality.tier.value if entry_quality else "MEDIUM"
+                entry_signal["quality_score"] = entry_quality.score if entry_quality else 0.0
+                entry_signal["has_zone"] = entry_quality.has_zone if entry_quality else False
 
                 if self._can_open_position(entry_signal["direction"], entry_signal["price"]):
                     atr = technical_indicators["atr"]
@@ -601,6 +697,7 @@ class BacktestEngine:
         entry_price = signal["price"]
         direction = signal["direction"]
         sl_distance = abs(entry_price - sl)
+        quality_tier = signal.get("quality_tier", EntryTier.TIER_B.value)
 
         # Phase 1 sync: read exit thresholds from risk_config (not sltp_info defaults)
         # Live bot uses 0.77/dynamic/2.72 — NOT 1.0/1.5/2.0 old defaults
@@ -634,14 +731,20 @@ class BacktestEngine:
             "be_trigger_rr": be_trigger,
             "partial_close_rr": partial_close,
             "trail_activation_rr": trail_activation,
+            # Dynamic Entry Gate tier
+            "quality_tier": quality_tier,
+            "quality_score": signal.get("quality_score", signal["confidence"]),
+            "has_zone": signal.get("has_zone", False),
         }
 
         self.open_positions.append(position)
         self._regime_per_trade.append(regime.value)
+        self._tier_per_trade.append(quality_tier)
 
         self.logger.debug(
             f"OPEN: {direction} @ {entry_price:.2f} | SL: {sl:.2f} | "
-            f"TP: {tp:.2f} | Lot: {lot_size} | Regime: {regime.value}"
+            f"TP: {tp:.2f} | Lot: {lot_size} | Regime: {regime.value} | "
+            f"Tier: {quality_tier}"
         )
 
     def _update_positions(
@@ -876,6 +979,10 @@ class BacktestEngine:
             "regime": position.get("regime", MarketRegime.RANGE_WIDE).value
                 if isinstance(position.get("regime"), MarketRegime)
                 else str(position.get("regime", "")),
+            # Dynamic Entry Gate
+            "quality_tier": position.get("quality_tier", "MEDIUM"),
+            "quality_score": position.get("quality_score", 0.0),
+            "has_zone": position.get("has_zone", False),
         }
 
         self.trades.append(trade)

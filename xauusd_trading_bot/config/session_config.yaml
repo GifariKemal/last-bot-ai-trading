@@ -12,7 +12,7 @@ sessions:
     name: "Asian Session"
     start_utc: "00:00"       # Japan has no DST — always 00:00
     end_utc: "09:00"         # Winter fallback (was 08:00 — wrong)
-    weight: 0.75  # V3 Optuna-optimized (was 0.7)
+    weight: 0.947  # V5 Optuna-optimized (was 0.75 — Asian sessions undervalued)
     min_confluence_adjustment: 0.05  # Require slightly higher confluence
     description: "Tokyo session - Lower volatility, still tradeable"
 
@@ -36,7 +36,7 @@ sessions:
     name: "London-NY Overlap"
     start_utc: "13:00"       # Winter fallback (summer: 12:00)
     end_utc: "17:00"         # Winter fallback (was 16:00 — wrong; summer: 16:00)
-    weight: 1.18  # V3 Optuna-optimized (was 1.25)
+    weight: 1.442  # V5 Optuna-optimized (was 1.18)
     min_confluence_adjustment: 0.05   # Require higher confluence (data: PF 0.53, worst session)
     description: "Overlap session - Best liquidity and movement for XAUUSD"
 

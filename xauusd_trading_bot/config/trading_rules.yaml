@@ -179,8 +179,8 @@ confluence_weights:
   # bos_solo_penalty     : extra score deduction for naked BOS (Optuna range: 0.0–0.20)
   # bos_ranging_fill_floor: stricter SMC fill floor for BOS in ranging/volatile regimes
   #                          (Optuna range: 0.30–0.55; can't go below global MIN_SMC_FILL=0.30)
-  bos_solo_penalty: 0.05       # Starting point: small penalty for unconfirmed BOS
-  bos_ranging_fill_floor: 0.38 # Starting point: 8% stricter floor in ranging/volatile
+  bos_solo_penalty: 0.139      # V5 Optuna-optimized (was 0.05 — 14% deduction for naked BOS)
+  bos_ranging_fill_floor: 0.461 # V5 Optuna-optimized (was 0.38 — stricter floor in ranging/volatile)
 
 # Signal Validation
 
