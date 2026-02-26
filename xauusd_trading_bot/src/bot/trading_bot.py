@@ -157,6 +157,7 @@ class TradingBot:
         self._startup_warmup = True  # Skip signal processing on first M15 cycle
         self._last_market_data = None       # Cache last full analysis for fast path
         self.last_volatility_level = "medium"
+        self._prev_print_data = {}  # Prev candle price/RSI for console delta display
 
         # Tick capture settings (every 2 minutes)
         self.tick_capture_interval = 120  # seconds
@@ -633,6 +634,7 @@ class TradingBot:
                             "session_name": market_data.get("session_name", "Unknown"),
                             "threshold": market_data.get("threshold", 0.55),
                             "regime": market_data.get("regime", "unknown"),
+                            "regime_result": market_data.get("regime_result", {}),
                         },
                         gate_result=gate_result,
                         position_info=position_info,
@@ -863,6 +865,7 @@ class TradingBot:
                 bullish_confluence, bearish_confluence,
                 effective_threshold, mtf_analysis, market_analysis,
                 trend_analysis, h1_bias,
+                vol_analysis=volatility_analysis,
             )
 
             # Telegram data stored in return dict (sent by main loop after gate check)
@@ -1823,6 +1826,7 @@ class TradingBot:
         tech, ema20, ema50, regime, regime_result,
         bull_smc, bear_smc, bull_conf, bear_conf,
         threshold, mtf, market, trend, h1_bias,
+        vol_analysis=None,
     ):
         """Print colorized M15 analysis to console (not to log file)."""
         # ANSI
@@ -1861,20 +1865,46 @@ class TradingBot:
         else:
             reg_c = BY
 
-        # Bull/Bear SMC active signals
-        def smc_active(smc):
+        # Bull/Bear SMC detail: show all 5 signals with scores (active) or -- (absent)
+        def smc_detail_str(smc, conf, active_clr):
+            details = conf.get("breakdown", {}).get("smc", {}).get("details", {})
             parts = []
-            if smc["structure"]["choch"]: parts.append("CHoCH")
-            if smc["structure"]["bos"]: parts.append("BOS")
-            if smc["fvg"]["in_zone"]: parts.append("FVG")
-            if smc["order_block"]["at_zone"]: parts.append("OB")
-            if smc["liquidity"]["swept"]: parts.append("Liq")
-            return parts
+            signals = [
+                ("CHoCH", "choch",           smc["structure"]["choch"]),
+                ("BOS",   "bos",             smc["structure"]["bos"]),
+                ("FVG",   "fvg",             smc["fvg"]["in_zone"]),
+                ("OB",    "order_block",      smc["order_block"]["at_zone"]),
+                ("Liq",   "liquidity_sweep",  smc["liquidity"]["swept"]),
+            ]
+            for name, key, is_active in signals:
+                score = details.get(key, 0)
+                if is_active:
+                    parts.append(f"{active_clr}{name}({score:.2f}){RS}")
+                else:
+                    parts.append(f"{GY}{name}--{RS}")
+            return " ".join(parts)
 
-        bull_active = smc_active(bull_smc)
-        bear_active = smc_active(bear_smc)
-        bull_str = " ".join(f"{BG}{s}{RS}" for s in bull_active) if bull_active else f"{GY}--{RS}"
-        bear_str = " ".join(f"{BR}{s}{RS}" for s in bear_active) if bear_active else f"{GY}--{RS}"
+        # Price delta vs previous candle
+        prev_p = self._prev_print_data
+        pd_str = ""
+        if prev_p.get("price") is not None:
+            pdelta = price - prev_p["price"]
+            pd_clr = BG if pdelta >= 0 else BR
+            pd_str = f"  {pd_clr}{pdelta:+.2f}{RS}"
+
+        # RSI direction arrow (plain text, no emoji)
+        prev_rsi = prev_p.get("rsi")
+        rsi_arr = ""
+        if prev_rsi is not None:
+            rsi_arr = " \u2191" if rsi > prev_rsi + 0.1 else (" \u2193" if rsi < prev_rsi - 0.1 else "")
+
+        # Volatility level
+        vol_tag = ""
+        if vol_analysis:
+            vl = vol_analysis.get("level")
+            if vl:
+                vs = vl.value if hasattr(vl, "value") else str(vl)
+                vol_tag = f"  {GY}Vol{RS} {vs}"
 
         # Confluence breakdown
         def conf_line(conf, label, clr, thr):
@@ -1906,18 +1936,22 @@ class TradingBot:
         print(f"\n{dline}")
         print(f"  {BD}{BW}M15 ANALYSIS{RS}  {CY}{now.strftime('%H:%M')} UTC / {wib_now.strftime('%H:%M')} WIB{RS}  {BY}{session_name}{RS}")
         print(line)
-        print(f"  {BD}{BW}{price:.2f}{RS}  {GY}ATR{RS} {atr:.2f}  {GY}RSI{RS} {rsi_c}{rsi:.1f}{RS}  {GY}MACD{RS} {macd_c}{macd_h:+.2f}{RS}")
+        print(f"  {BD}{BW}{price:.2f}{RS}{pd_str}  {GY}ATR{RS} {atr:.2f}  {GY}RSI{RS} {rsi_c}{rsi:.1f}{rsi_arr}{RS}  {GY}MACD{RS} {macd_c}{macd_h:+.2f}{RS}")
         print(f"  {GY}EMA20{RS} {ema20:.2f}  {GY}EMA50{RS} {ema50:.2f}  {ema_clr}[{ema_dir}]{RS}")
-        print(f"  {reg_c}{BD}{regime.value}{RS} {GY}({regime_result.get('confidence', 0):.2f}){RS}  {GY}Adaptive{RS} {'ON' if self.use_adaptive_scorer else 'OFF'}")
+        print(f"  {reg_c}{BD}{regime.value}{RS} {GY}({regime_result.get('confidence', 0):.2f}){RS}{vol_tag}  {GY}Adaptive{RS} {'ON' if self.use_adaptive_scorer else 'OFF'}")
         print(line)
-        print(f"  {GR}BULL SMC{RS} {bull_str}  {GY}raw{RS} {bull_smc['confluence_score']:.2f}")
-        print(f"  {RD}BEAR SMC{RS} {bear_str}  {GY}raw{RS} {bear_smc['confluence_score']:.2f}")
+        bull_det = smc_detail_str(bull_smc, bull_conf, BG)
+        bear_det = smc_detail_str(bear_smc, bear_conf, BR)
+        print(f"  {GR}BULL{RS} {bull_det}  {GY}raw{RS} {bull_smc['confluence_score']:.2f}")
+        print(f"  {RD}BEAR{RS} {bear_det}  {GY}raw{RS} {bear_smc['confluence_score']:.2f}")
         print(line)
         print(conf_line(bull_conf, "BULL", GR, threshold))
         print(conf_line(bear_conf, "BEAR", RD, threshold))
         mtf_s = f"{BG}YES{RS}" if mtf_al else f"{GY}no{RS}"
         print(f"  {GY}MTF{RS} {mtf_s}  {GY}Trend{RS} {trend_c}{trend_dir}{RS}  {GY}H1{RS} {h1_bias.upper()}")
         print(dline)
+        # Store for next candle delta comparison
+        self._prev_print_data = {"price": price, "rsi": rsi}
 
     # ─── Tick Capture ────────────────────────────────────────────────────────
 

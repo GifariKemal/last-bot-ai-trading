@@ -133,6 +133,37 @@ class TelegramNotifier:
             "liq": details.get("liquidity_sweep", 0),
         }
 
+    @staticmethod
+    def _smc_signals_str(smc_data: Dict, scores: Dict) -> str:
+        """Active SMC signals with individual contribution scores."""
+        parts = []
+        signal_map = [
+            ("CHoCH", smc_data["structure"]["choch"],       scores["choch"]),
+            ("BOS",   smc_data["structure"]["bos"],         scores["bos"]),
+            ("OB",    smc_data["order_block"]["at_zone"],   scores["ob"]),
+            ("FVG",   smc_data["fvg"]["in_zone"],           scores["fvg"]),
+            ("Liq",   smc_data["liquidity"]["swept"],       scores["liq"]),
+        ]
+        for name, active, score in signal_map:
+            if active:
+                parts.append(f"<b>{name}</b>({score:.2f})")
+        return " ".join(parts) if parts else "\u2014"
+
+    @staticmethod
+    def _breakdown_str(conf: Dict) -> str:
+        """Compact smc/tech/ltf/ct breakdown string."""
+        brk = conf.get("breakdown", {})
+        smc_t  = brk.get("smc", {}).get("total", 0)
+        tech_t = brk.get("technical", {}).get("total", 0)
+        ltf_t  = brk.get("bonus", {}).get("details", {}).get("ltf_confirmation", 0)
+        ct     = brk.get("adjustments", {}).get("details", {}).get("counter_trend", 0)
+        parts = [f"smc:{smc_t:.2f}", f"tech:{tech_t:.2f}"]
+        if ltf_t:
+            parts.append(f"ltf:{ltf_t:.2f}")
+        if ct:
+            parts.append(f"ct:{ct:.2f}")
+        return " ".join(parts)
+
     # ─── Signal Analysis (every 15 min) ─────────────────────────
 
     def send_signal_analysis(self, market_data: Dict,
@@ -270,37 +301,39 @@ class TelegramNotifier:
             )
 
             # [ KESIMPULAN ]
+            regime_conf = market_data.get("regime_result", {}).get("confidence", 0)
+            reg_conf_tag = f" ({regime_conf:.2f})" if regime_conf else ""
+            bull_pass = round(bull_score, 2) >= threshold
+            bear_pass = round(bear_score, 2) >= threshold
+            bull_tag2 = "\u2705" if bull_pass else "\u2717"
+            bear_tag2 = "\u2705" if bear_pass else "\u2717"
+            mtf_m = "\u2713" if mtf_aligned else "\u2717"
+            h1_info = f"H1: {h1_bias.upper()}"
+            if h1_tag:
+                h1_info += f" ({h1_tag})"
+
             L.append("")
             L.append("[ KESIMPULAN ]")
-            L.append(f"\u203a Regime: {regime.upper()}")
-            L.append(f"\u203a Struktur: BOS {bos_m} | CHoCH {choch_m}")
+            L.append(f"\u203a Regime: {regime.upper()}{reg_conf_tag}")
+            L.append(
+                f"\u203a BUY: <b>{bull_score:.2f}</b>/{threshold:.2f} {bull_tag2} | "
+                f"SELL: <b>{bear_score:.2f}</b>/{threshold:.2f} {bear_tag2}"
+            )
+            L.append(f"\u203a MTF: {mtf_m} | {h1_info}")
 
-            if has_signal:
-                mtf_m = "\u2713" if mtf_aligned else "\u2717"
-                h1_info = f"H1: {h1_bias.upper()}"
-                if h1_tag:
-                    h1_info += f" ({h1_tag})"
-                L.append(f"\u203a {h1_info} | MTF: {mtf_m}")
-                L.append(
-                    f"\u203a Rating: <b>{rating}</b> | "
-                    f"Score: <b>{best_score:.2f}</b> / {threshold}"
-                )
-            else:
-                L.append(f"\u203a Score: {best_score:.2f} / {threshold} | Rating: {rating}")
-
-            # [ SINYAL SMC ] — only when signal detected
-            if has_signal and active:
-                L.append("")
-                L.append("[ SINYAL SMC ]")
-                # CHoCH + BOS with individual scores
-                choch_s = f"\u2713 ({scores['choch']:.2f})" if has_choch else "\u2717"
-                bos_s = f"\u2713 ({scores['bos']:.2f})" if has_bos else "\u2717"
-                L.append(f"\u203a CHoCH: {choch_s} | BOS: {bos_s}")
-                # OB + FVG + Liq
-                ob_s = f"\u2713 ({scores['ob']:.2f})" if has_ob else "\u2717"
-                fvg_s = f"\u2713 ({scores['fvg']:.2f})" if has_fvg else "\u2717"
-                liq_s = f"\u2713 ({scores['liq']:.2f})" if has_liq else "\u2717"
-                L.append(f"\u203a OB: {ob_s} | FVG: {fvg_s} | Liq: {liq_s}")
+            # [ SINYAL SMC ] — always shown, both directions with breakdown
+            bull_smc_data = smc["bullish"]
+            bear_smc_data = smc["bearish"]
+            bull_scores_all = self._smc_scores(bull_c)
+            bear_scores_all = self._smc_scores(bear_c)
+            bull_sig_str = self._smc_signals_str(bull_smc_data, bull_scores_all)
+            bear_sig_str = self._smc_signals_str(bear_smc_data, bear_scores_all)
+            bull_brk_str = self._breakdown_str(bull_c)
+            bear_brk_str = self._breakdown_str(bear_c)
+            L.append("")
+            L.append("[ SINYAL SMC ]")
+            L.append(f"\u203a BUY  \u2014 {bull_sig_str} | {bull_brk_str}")
+            L.append(f"\u203a SELL \u2014 {bear_sig_str} | {bear_brk_str}")
 
             # [ MARKET ]
             L.append("")
