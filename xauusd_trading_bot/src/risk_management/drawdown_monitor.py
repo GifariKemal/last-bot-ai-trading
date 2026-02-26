@@ -66,6 +66,7 @@ class DrawdownMonitor:
         self.pause_until = None
         self.trade_history = []  # Recent trades for tracking
         self._loss_limit_logged = False  # Bug #52: prevent repeated log spam for percent-based limits
+        self._permanent_block_types: set = set()  # Bug #57: sticky block once percent violation fires
 
     def initialize(self, account_info: Dict) -> None:
         """
@@ -122,6 +123,19 @@ class DrawdownMonitor:
             self.consecutive_losses = 0
             self.pause_until = None
             pause_just_expired = True
+
+        # Bug #57: percent-based violations are sticky within a session.
+        # Once max_drawdown/daily_loss/etc fires, block stays until daily reset
+        # (or bot restart which re-initializes with fresh peak/start balances).
+        # Without this, equity recovery in an open trade briefly lifts the block,
+        # causing spurious TRADING RESUMED → TRADING PAUSED notification pairs.
+        if self._permanent_block_types:
+            types_str = ", ".join(sorted(self._permanent_block_types))
+            return {
+                "allowed": False,
+                "reason": f"Loss limit exceeded — blocked until reset ({types_str})",
+                "violations": [],
+            }
 
         violations = []
 
@@ -221,6 +235,11 @@ class DrawdownMonitor:
             elif has_percent_violation and not self._loss_limit_logged:
                 # Percent-based: block permanently until period reset (no timed pause loop)
                 self._loss_limit_logged = True
+                # Bug #57: record triggered violation types so sticky block persists
+                # even when equity briefly recovers (e.g. open trade becomes profitable).
+                for v in violations:
+                    if v["type"] in ("daily_loss", "weekly_loss", "monthly_loss", "max_drawdown"):
+                        self._permanent_block_types.add(v["type"])
                 self.logger.warning(
                     f"Trading BLOCKED until period reset: "
                     f"{', '.join([v['message'] for v in violations])}"
@@ -332,6 +351,7 @@ class DrawdownMonitor:
             self.last_reset_date = current_date
             self.consecutive_losses = 0  # Reset on new day
             self._loss_limit_logged = False  # Bug #52: allow logging for new day's violations
+            self._permanent_block_types.clear()  # Bug #57: lift sticky block for new day
 
         # Reset weekly (on Monday)
         if now.weekday() == 0 and (now - datetime.combine(self.last_reset_date, datetime.min.time())).days >= 7:
