@@ -104,8 +104,11 @@ class SMCStrategy:
                 )
 
                 if validation.get("passed", False):
-                    # Add to history
-                    self.validator.add_signal_to_history(entry_signal)
+                    # Bug #54: do NOT add to history here — micro_account check
+                    # in trading_bot.py runs AFTER this and may still reject the trade.
+                    # Cooldown must only activate on EXECUTED trades, not validated-but-
+                    # rejected ones.  trading_bot.py calls add_signal_to_history() after
+                    # the order actually executes.
                     entry_signal["validation"] = validation
                 else:
                     # Mark as invalid

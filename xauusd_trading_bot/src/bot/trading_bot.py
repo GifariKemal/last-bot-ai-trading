@@ -107,7 +107,10 @@ class TradingBot:
         self.entry_quality_engine = EntryQualityEngine()
 
         self.structure_sltp = StructureSLTPCalculator(config)
-        self.micro_account = MicroAccountManager(config)
+        # Bug #53: 93e05f7 changed config.get("risk",{}) → config, but micro_account
+        # is nested under config["risk"], not at top level.  config gives empty micro_cfg
+        # → defaults: max_risk_dollars=2.0, max_risk_pct=2.0% (blocks every trade).
+        self.micro_account = MicroAccountManager(config.get("risk", {}))
 
         # Configurable exit stage thresholds (V3)
         exit_cfg = config.get("exit_stages", {})
@@ -1718,6 +1721,11 @@ class TradingBot:
             if result.get("success"):
                 self.logger.info(f"ORDER FILLED: Ticket #{result['ticket']}")
                 self.position_tracker.add_position(result)
+
+                # Bug #54 fix: add to signal cooldown history ONLY after order fills.
+                # Previously added in smc_strategy.py after validation — before
+                # micro_account check — so rejected trades still triggered 75-min cooldown.
+                self.strategy.validator.add_signal_to_history(entry_signal)
 
                 # Store entry context in tracker for CSV at close time
                 session_info = self.session_manager.get_current_session()
