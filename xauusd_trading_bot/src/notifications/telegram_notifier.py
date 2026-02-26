@@ -347,11 +347,14 @@ class TelegramNotifier:
                     missing.append("FVG/OB")
                 if not active:
                     missing = ["SMC signal"]
-                miss_str = (
-                    f"Butuh {' + '.join(missing[:2])} (+{gap:.2f})"
-                    if missing
-                    else f"Gap: +{gap:.2f}"
-                )
+                if gap <= 0.005:
+                    # Score is at or above threshold — blocked by floating point
+                    # or another gate; don't imply missing SMC signals are the cause.
+                    miss_str = f"Score batas ({best_score:.2f}/{threshold:.2f}) — cek gate"
+                elif missing:
+                    miss_str = f"Butuh {' + '.join(missing[:2])} (+{gap:.2f})"
+                else:
+                    miss_str = f"Gap: +{gap:.2f}"
                 delta_str = ""
                 if prev:
                     prev_best = max(prev.get("bull_score", 0), prev.get("bear_score", 0))
